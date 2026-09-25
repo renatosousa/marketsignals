@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashboard",
+      "runtimeExecutable": "C:\\desenv\\Jev-trader\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["dashboard.py", "--porta", "8050"],
+      "port": 8050
+    }
+  ]
+}

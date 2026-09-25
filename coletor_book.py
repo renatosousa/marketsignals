@@ -4,7 +4,8 @@ Grava periodicamente (default 1 s) metricas agregadas e o topo do livro, e regis
 eventos de mudancas relevantes (paredes de volume que surgem/somem). Outro processo
 pode ler o banco em paralelo (modo WAL).
 
-Tabelas (todas com ts_ms = hora do servidor MT5, em ms):
+Tabelas (todas com ts_ms = hora do servidor MT5 em ms, estimada por relogio local + offset;
+mesma base de tempo para todos os ativos):
   snapshots  1 linha por intervalo: preco, spread, pressao compradora/vendedora, imbalance,
              microprice, fluxo de agressao no intervalo e saldo acumulado da sessao.
   niveis     os N niveis mais proximos do preco, de cada lado, por snapshot.
@@ -13,7 +14,7 @@ Tabelas (todas com ts_ms = hora do servidor MT5, em ms):
 Obs.: o MT5 nao informa numero de ordens; so o volume agregado por nivel.
 
 Uso: python coletor_book.py [SIMBOLO] [SEGUNDOS] [--db dados/book.db] [--intervalo 1.0]
-                            [--niveis 5] [--parede-mult 3.0] [--parede-min 200]
+                            [--niveis 5] [--parede-mult 2.0] [--parede-min 200] [--sem-trades]
      (SEGUNDOS=0 roda ate Ctrl+C)
 """
 import argparse
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
     saldo_acum REAL,
     PRIMARY KEY (sessao, symbol, ts_ms)
 );
+CREATE INDEX IF NOT EXISTS ix_snap_sym_ts ON snapshots (symbol, ts_ms);
 CREATE TABLE IF NOT EXISTS niveis (
     ts_ms INTEGER NOT NULL, sessao TEXT NOT NULL, symbol TEXT NOT NULL,
     lado TEXT NOT NULL, dist INTEGER NOT NULL, preco REAL, volume REAL
@@ -123,11 +125,14 @@ def main():
     ap.add_argument("--parede-mult", type=float, default=2.0,
                     help="parede = nivel com volume >= mult x mediana dos niveis do livro")
     ap.add_argument("--parede-min", type=float, default=200.0, help="volume minimo absoluto de uma parede")
+    ap.add_argument("--sem-trades", action="store_true",
+                    help="so livro; nao le ticks (campos de agressao ficam NULL). Para ativos cujo "
+                         "copy_ticks trava o terminal (ex.: BOVA11 na Genial)")
     args = ap.parse_args()
     sym = args.symbol
 
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(args.db)
+    db = sqlite3.connect(args.db, timeout=30)  # varios coletores podem gravar no mesmo banco
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA synchronous=NORMAL")
     db.executescript(SCHEMA)
@@ -139,6 +144,7 @@ def main():
 
     sessao = datetime.now().strftime("%Y%m%d_%H%M%S")
     ultimo_msc = int(mt5.symbol_info_tick(sym).time_msc)
+    offset = float("-inf")
     saldo = 0.0
     ant_b, ant_a = {}, {}
     limiar = None
@@ -155,9 +161,15 @@ def main():
             if tk is None:  # terminal desconectado / sem cotacao: espera e tenta de novo
                 time.sleep(1)
                 continue
-            agora = int(tk.time_msc)
+            # relogio = local + offset p/ o servidor. A hora do tick nunca passa da hora real do
+            # servidor, entao o maior offset visto e a melhor estimativa. Usar a hora do tick
+            # direto repete o ts quando o ativo fica sem negocio (snapshots se sobrescreviam).
+            local = time.time() * 1000
+            offset = max(offset, tk.time_msc - local)
+            agora = int(local + offset)
 
-            ticks = mt5.copy_ticks_range(sym, utc(ultimo_msc), utc(agora + 1000), mt5.COPY_TICKS_TRADE)
+            ticks = None if args.sem_trades else \
+                mt5.copy_ticks_range(sym, utc(ultimo_msc), utc(agora + 1000), mt5.COPY_TICKS_TRADE)
             if ticks is not None:
                 for t in ticks:
                     ms = int(t["time_msc"])
@@ -192,12 +204,13 @@ def main():
                 m = metricas_livro(bids, asks, args.niveis)
                 delta = acc["comp"] - acc["vend"]
                 saldo += delta
+                fluxo = (None,) * 5 if args.sem_trades else (acc["n"], acc["comp"], acc["vend"], delta, saldo)
                 db.execute(
                     "INSERT OR REPLACE INTO snapshots VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (agora, sessao, sym, m["bid"], m["ask"], m["mid"], m["spread"], tk.last,
                      m["vol_bid_total"], m["vol_ask_total"], m["vol_bid_near"], m["vol_ask_near"],
                      m["imbalance_total"], m["imbalance_near"], m["imbalance_pond"], m["microprice"],
-                     m["niveis_bid"], m["niveis_ask"], acc["n"], acc["comp"], acc["vend"], delta, saldo))
+                     m["niveis_bid"], m["niveis_ask"], *fluxo))
                 db.executemany(
                     "INSERT INTO niveis VALUES (?,?,?,?,?,?,?)",
                     [(agora, sessao, sym, lado, i, p, v)
@@ -221,7 +234,8 @@ def main():
         mt5.shutdown()
         db.commit()
         db.close()
-    print(f"Snapshots: {n_snap} | eventos: {n_ev} | saldo de agressao da sessao: {saldo:+.0f}")
+    fluxo = "sem trades" if args.sem_trades else f"saldo de agressao da sessao: {saldo:+.0f}"
+    print(f"Snapshots: {n_snap} | eventos: {n_ev} | {fluxo}")
 
 
 if __name__ == "__main__":

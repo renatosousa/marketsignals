@@ -5,7 +5,7 @@ cada feature: correlacao de Pearson e de Spearman (rank), e o hit-rate direciona
 (sinal da feature == sinal do retorno, ignorando retorno zero). Tambem mostra o retorno
 medio por quintil da feature.
 
-Uso: python analisar_sinais.py [--db dados/book.db] [--horizontes 5 15 30 60]
+Uso: python analisar_sinais.py [--db dados/book.db] [--symbol WIN$] [--horizontes 5 15 30 60]
 """
 import argparse
 import sqlite3
@@ -18,10 +18,12 @@ TOLERANCIA_S = 3         # tolerancia para achar o snapshot do horizonte
 FEATURES = ["imbalance_total", "imbalance_near", "imbalance_pond", "micro_desvio", "delta", "delta_15s"]
 
 
-def carregar(db):
+def carregar(db, symbol):
     con = sqlite3.connect(db)
-    df = pd.read_sql("SELECT * FROM snapshots ORDER BY sessao, ts_ms", con)
+    df = pd.read_sql("SELECT * FROM snapshots WHERE symbol = ? ORDER BY sessao, ts_ms", con, params=(symbol,))
     con.close()
+    if df.empty:
+        raise SystemExit(f"nenhum snapshot de {symbol} em {db}")
     df["micro_desvio"] = df["microprice"] - df["mid"]
     n0 = len(df)
     df = df[df["spread"] > 0]  # livro cruzado/travado (leilao, abertura): metricas sem sentido
@@ -55,10 +57,11 @@ def montar(df, h):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default="dados/book.db")
+    ap.add_argument("--symbol", default="WIN$")
     ap.add_argument("--horizontes", type=int, nargs="+", default=[5, 15, 30, 60])
     args = ap.parse_args()
 
-    df = carregar(args.db)
+    df = carregar(args.db, args.symbol)
     dur = (df["ts_ms"].max() - df["ts_ms"].min()) / 60000
     print(f"{len(df)} snapshots, {df['sessao'].nunique()} sessao(oes), {dur:.1f} min, "
           f"mid de {df['mid'].min():.0f} a {df['mid'].max():.0f}\n")
@@ -73,7 +76,7 @@ def main():
         linhas = []
         for f in FEATURES:
             x, y = d[f], d["ret_fut"]
-            if x.std() == 0:
+            if x.isna().all() or x.std() == 0:  # ex.: fluxo de agressao em coleta --sem-trades
                 continue
             pear = x.corr(y)
             spear = x.rank().corr(y.rank())

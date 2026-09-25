@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel Jev-trader</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css">
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --border: rgba(11,11,11,0.10);
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --wash: rgba(11,11,11,0.05);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --pos: #2a78d6; --neg: #e34948;
+  --good: #0ca30c; --warning: #fab219; --critical: #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --border: rgba(255,255,255,0.10);
+    --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --wash: rgba(255,255,255,0.06);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --pos: #3987e5; --neg: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --border: rgba(255,255,255,0.10);
+  --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --wash: rgba(255,255,255,0.06);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --pos: #3987e5; --neg: #e66767;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink);
+       font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1440px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 12px; }
+h1 { font-size: 20px; margin: 0; font-weight: 650; }
+.sub { color: var(--ink-2); font-size: 13px; }
+.filtros { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 8px 0 20px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { font: inherit; border: 0; background: none; color: var(--ink-2); padding: 6px 12px; cursor: pointer; }
+.seg button:hover { background: var(--wash); }
+.seg button[aria-pressed="true"] { color: var(--ink); font-weight: 650; background: var(--wash); }
+label.chk { color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+h2 { font-size: 15px; font-weight: 650; margin: 28px 0 10px; }
+.grade { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+.tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 14px 10px; min-width: 0; }
+.card h3 { font-size: 13px; font-weight: 650; margin: 0; }
+.card .unid { color: var(--muted); font-size: 12px; margin: 2px 0 8px; }
+.tile .rot { color: var(--ink-2); font-size: 12px; }
+.tile .val { font-size: 24px; font-weight: 650; margin: 2px 0; }
+.tile .det { color: var(--ink-2); font-size: 12px; }
+.st { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.st i { font-style: normal; font-weight: 700; }
+.st.good i { color: var(--good); } .st.warning i { color: var(--warning); } .st.critical i { color: var(--critical); }
+.st.muted i { color: var(--muted); }
+.graf { width: 100%; }
+.vazio { color: var(--muted); font-size: 13px; padding: 40px 0; text-align: center; }
+details { margin-top: 6px; }
+summary { color: var(--muted); font-size: 12px; cursor: pointer; }
+table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--ink-2); font-weight: 600; }
+.tab-wrap { overflow-x: auto; max-height: 260px; }
+.barra { display: inline-block; height: 8px; border-radius: 0 4px 4px 0; vertical-align: middle; }
+.barra.neg { border-radius: 4px 0 0 4px; }
+.cbar { display: inline-flex; width: 120px; }
+.cbar span { flex: 1; display: flex; }
+.cbar span:first-child { justify-content: flex-end; border-right: 1px solid var(--axis); }
+.nota { color: var(--muted); font-size: 12px; margin-top: 8px; }
+.erro { color: var(--critical); font-size: 13px; }
+#conteudo.carregando { opacity: .6; transition: opacity .2s; }
+/* uPlot: legenda com tinta de texto; a cor fica so no marcador */
+.u-legend { font-size: 12px; color: var(--ink-2); text-align: left; }
+.u-legend .u-marker { border-radius: 2px; }
+.u-legend th { font-weight: 500; color: var(--ink-2); }
+.u-legend td { color: var(--ink); font-variant-numeric: tabular-nums; }
+.u-legend .u-series:first-child { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Painel Jev-trader</h1>
+    <span class="sub" id="atualizado">carregando…</span>
+  </header>
+  <div class="filtros" role="toolbar" aria-label="Filtros">
+    <div class="seg" id="janelas" aria-label="Janela de tempo">
+      <button data-j="900">15 min</button><button data-j="1800">30 min</button>
+      <button data-j="3600" aria-pressed="true">1 h</button><button data-j="10800">3 h</button>
+      <button data-j="pregao">Pregão</button>
+    </div>
+    <label class="chk"><input type="checkbox" id="auto" checked> Atualizar a cada 10 s</label>
+    <span class="erro" id="erro"></span>
+  </div>
+
+  <div id="conteudo">
+    <section>
+      <div class="tiles" id="status"></div>
+    </section>
+
+    <h2>Índice e BOVA11 · livro e fluxo</h2>
+    <div class="grade">
+      <div class="card"><h3>WIN · preço</h3><div class="unid">pontos (mid)</div><div class="graf" id="g-win"></div></div>
+      <div class="card"><h3>WIN · saldo de agressão acumulado na janela</h3><div class="unid">contratos (compra agressora − venda agressora)</div><div class="graf" id="g-saldo"></div></div>
+      <div class="card"><h3>Pressão do livro</h3><div class="unid">imbalance ponderado, −1 vendedor a +1 comprador (média do intervalo)</div><div class="graf" id="g-imb"></div></div>
+      <div class="card"><h3>BOVA11 · preço</h3><div class="unid">R$ (mid)</div><div class="graf" id="g-bova"></div></div>
+    </div>
+
+    <h2>Opções BOVA11</h2>
+    <div class="tiles" id="tiles-opc"></div>
+    <div class="grade" style="margin-top:12px">
+      <div class="card"><h3>Vol implícita ATM por vencimento</h3><div class="unid">% a.a.</div><div class="graf" id="g-atm"></div></div>
+      <div class="card"><h3>Risk reversal 25Δ por vencimento</h3><div class="unid">pontos de vol (call 25Δ − put 25Δ); negativo = proteção contra queda mais cara</div><div class="graf" id="g-rr"></div></div>
+      <div class="card"><h3>Smile atual</h3><div class="unid">vol implícita % por strike (puts abaixo do forward, calls acima)</div><div class="graf" id="g-smile"></div></div>
+      <div class="card"><h3>Fluxo estimado em opções</h3><div class="unid">negócios detectados, compra − venda, acumulado na janela (proxy)</div><div class="graf" id="g-fluxo"></div></div>
+    </div>
+
+    <h2>Macro</h2>
+    <div class="grade">
+      <div class="card"><h3>Brasil × exterior</h3><div class="unid">variação % desde o início da janela</div><div class="graf" id="g-m1"></div></div>
+      <div class="card"><h3>Commodities</h3><div class="unid">variação % desde o início da janela</div><div class="graf" id="g-m2"></div></div>
+      <div class="card"><h3>Doméstico e ouro</h3><div class="unid">variação % desde o início da janela</div><div class="graf" id="g-m3"></div></div>
+      <div class="card"><h3>Curva de juros (DI1)</h3><div class="unid">taxa % a.a. por vértice</div><div class="graf" id="g-di"></div></div>
+      <div class="card"><h3>Inclinação da curva</h3><div class="unid">DI1F33 − DI1F27, pontos-base</div><div class="graf" id="g-incl"></div></div>
+      <div class="card"><h3>Correlação com o WIN</h3><div class="unid">retornos de 1 min na janela (DI: variação da taxa)</div><div id="correl"></div>
+        <p class="nota">“Antecipa” = correlação do ativo no minuto anterior com o WIN no minuto seguinte. Com menos de ~60 minutos na janela os valores são ruído.</p></div>
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  let janela = "3600", timer = null, ultimo = null;
+  const graficos = {};
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const cores = () => [css("--s1"), css("--s2"), css("--s3"), css("--s4")];
+
+  // ---------- formatos
+  const nf = (d) => new Intl.NumberFormat("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const fmt = (v, d = 2) => v == null ? "–" : nf(d).format(v);
+  const hora = t => new Date(t * 1000).toISOString().slice(11, 19);  // ts ja estao em hora de Brasilia
+  const sinal = (v, d = 2) => v == null ? "–" : (v > 0 ? "+" : "") + nf(d).format(v);
+
+  // ---------- grafico generico (uPlot) com crosshair, legenda viva e tabela
+  function linhaZero(u) {
+    const y = u.valToPos(0, "y", true);
+    if (y < u.bbox.top || y > u.bbox.top + u.bbox.height) return;
+    const c = u.ctx; c.save(); c.strokeStyle = css("--axis"); c.lineWidth = 1;
+    c.beginPath(); c.moveTo(u.bbox.left, y); c.lineTo(u.bbox.left + u.bbox.width, y); c.stroke(); c.restore();
+  }
+
+  function grafico(id, x, series, o = {}) {
+    const el = document.getElementById(id);
+    const temDado = series.some(s => s.v && s.v.some(v => v != null));
+    const assinatura = series.map(s => s.nome).join("|") + (o.xCat || "") + (o.tempo === false ? "n" : "t");
+    if (!temDado) {
+      if (graficos[id]) { graficos[id].u.destroy(); delete graficos[id]; }
+      el.innerHTML = '<div class="vazio">sem dados na janela</div>';
+      return;
+    }
+    const dadosU = [x, ...series.map(s => s.v)];
+    const g = graficos[id];
+    if (g && g.assinatura === assinatura) {
+      g.u.setData(dadosU);
+    } else {
+      if (g) g.u.destroy();
+      el.innerHTML = "";
+      const cs = cores();
+      const d = o.dec ?? 2;
+      const opts = {
+        width: el.clientWidth || 400, height: o.altura || 220,
+        tzDate: ts => uPlot.tzDate(new Date(ts * 1e3), "Etc/UTC"),
+        scales: { x: { time: o.tempo !== false } },
+        cursor: o.tempo === false ? { points: { size: 8 } } : { sync: { key: "t" }, points: { size: 8 } },
+        legend: { live: true },
+        series: [
+          { value: (u, v) => v == null ? "–" : (o.tempo === false ? (o.xCat ? o.xCat[v] : fmt(v, 2)) : hora(v)) },
+          ...series.map((s, i) => ({
+            label: s.nome, stroke: cs[s.slot ?? i], width: 2, spanGaps: true,
+            points: { show: o.pontos ?? false, size: 8, fill: cs[s.slot ?? i], stroke: css("--surface"), width: 2 },
+            value: (u, v) => v == null ? "–" : (o.fmtY ? o.fmtY(v) : fmt(v, d)),
+          })),
+        ],
+        axes: [
+          { stroke: css("--muted"), grid: { stroke: css("--grid"), width: 1 }, ticks: { stroke: css("--grid"), width: 1 },
+            ...(o.xCat ? { splits: () => o.xCat.map((_, i) => i), values: (u, sp) => sp.map(i => o.xCat[i] ?? "") }
+              : o.tempo === false ? { values: (u, sp) => sp.map(v => fmt(v, 0)) }
+              : { values: (u, sp) => sp.map(v => hora(v).slice(0, 5)) }) },
+          { stroke: css("--muted"), grid: { stroke: css("--grid"), width: 1 }, ticks: { stroke: css("--grid"), width: 1 },
+            size: 64, values: (u, sp) => sp.map(v => o.fmtEixo ? o.fmtEixo(v) : fmt(v, o.decEixo ?? d)) },
+        ],
+        hooks: o.zero ? { draw: [linhaZero] } : {},
+      };
+      graficos[id] = { u: new uPlot(opts, dadosU, el), assinatura };
+    }
+    tabela(el, x, series, o);
+  }
+
+  // tabela gemea (ate 20 linhas espacadas) para leitura sem hover
+  function tabela(el, x, series, o) {
+    let det = el.parentElement.querySelector("details");
+    if (!det) { det = document.createElement("details"); det.innerHTML = "<summary>Tabela</summary><div class='tab-wrap'></div>"; el.after(det); }
+    const idx = [];
+    const passo = Math.max(1, Math.floor(x.length / 20));
+    for (let i = x.length - 1; i >= 0 && idx.length < 20; i -= passo) if (series.some(s => s.v[i] != null)) idx.push(i);
+    const fx = i => o.tempo === false ? (o.xCat ? o.xCat[x[i]] : fmt(x[i], 2)) : hora(x[i]);
+    const fy = v => v == null ? "–" : (o.fmtY ? o.fmtY(v) : fmt(v, o.dec ?? 2));
+    det.querySelector(".tab-wrap").innerHTML =
+      `<table><thead><tr><th>${o.tempo === false ? (o.nomeX || "x") : "hora"}</th>${series.map(s => `<th>${s.nome}</th>`).join("")}</tr></thead><tbody>` +
+      idx.map(i => `<tr><td>${fx(i)}</td>${series.map(s => `<td>${fy(s.v[i])}</td>`).join("")}</tr>`).join("") + "</tbody></table>";
+  }
+
+  // ---------- status
+  function status(d) {
+    const agora = new Date();
+    const pregao = agora.getDay() >= 1 && agora.getDay() <= 5 && (agora.getHours() + agora.getMinutes() / 60) >= 9 && agora.getHours() < 18;
+    const itens = d.status.map(s => {
+      let cls = "good", ico = "●", txt = "Ativo";
+      if (s.idade_s == null) { cls = "critical"; ico = "✕"; txt = "Sem dados"; }
+      else if (!pregao) { cls = "muted"; ico = "○"; txt = "Fora do pregão"; }
+      else if (s.idade_s > 180) { cls = "critical"; ico = "✕"; txt = "Parado"; }
+      else if (s.idade_s > 30) { cls = "warning"; ico = "▲"; txt = "Atrasado"; }
+      const idade = s.idade_s == null ? "" : s.idade_s < 120 ? `há ${Math.round(s.idade_s)} s` : `há ${Math.round(s.idade_s / 60)} min`;
+      return `<div class="card tile"><div class="rot">${s.nome}</div>
+        <div class="st ${cls}"><i aria-hidden="true">${ico}</i>${txt}</div>
+        <div class="det">último dado ${s.ts ? hora(s.ts) : "–"} ${idade}</div></div>`;
+    });
+    itens.push(`<div class="card tile"><div class="rot">Banco de dados</div><div class="val">${fmt(d.db_mb, 0)} MB</div>
+      <div class="det">dados/book.db</div></div>`);
+    $("#status").innerHTML = itens.join("");
+  }
+
+  function tilesOpcoes(o) {
+    $("#tiles-opc").innerHTML = o.tiles.length ? o.tiles.map((t, i) => {
+      const dv = t.atm != null && t.atm_ini != null ? (t.atm - t.atm_ini) * 100 : null;
+      return `<div class="card tile"><div class="rot"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--s${i + 1});margin-right:6px"></span>Vencimento ${t.venc.split("-").reverse().join("/")}</div>
+        <div class="val">${t.atm != null ? fmt(t.atm * 100, 1) + "%" : "–"}</div>
+        <div class="det">vol ATM · ${sinal(dv, 2)} p.p. na janela · RR25 ${sinal(t.rr25 != null ? t.rr25 * 100 : null, 2)}</div></div>`;
+    }).join("") : '<div class="vazio">sem opções na janela</div>';
+  }
+
+  function correl(lista) {
+    const barra = v => {
+      if (v == null) return '<span class="cbar"><span></span><span></span></span>';
+      const w = Math.min(Math.abs(v), 1) * 60;
+      return v < 0
+        ? `<span class="cbar"><span><i class="barra neg" style="width:${w}px;background:var(--neg)"></i></span><span></span></span>`
+        : `<span class="cbar"><span></span><span><i class="barra" style="width:${w}px;background:var(--pos)"></i></span></span>`;
+    };
+    $("#correl").innerHTML = `<div class="tab-wrap" style="max-height:none"><table><thead><tr><th>Ativo</th><th>Correlação</th><th></th><th>Antecipa</th><th>n</th></tr></thead><tbody>` +
+      lista.map(c => `<tr><td>${c.symbol}</td><td>${sinal(c.corr, 2)}</td><td>${barra(c.corr)}</td><td>${sinal(c.lead, 2)}</td><td>${c.n}</td></tr>`).join("") +
+      "</tbody></table></div>";
+  }
+
+  // ---------- render
+  function render(d) {
+    ultimo = d;
+    const t = d.tempos;
+    $("#atualizado").textContent = `dados até ${hora(d.t1)} · janela ${hora(d.t0)}–${hora(d.t1)} · intervalo de ${fmt(d.bucket_s, 0)} s`;
+    status(d);
+
+    grafico("g-win", t, [{ nome: "WIN", v: d.win.mid }], { dec: 0 });
+    grafico("g-saldo", t, [{ nome: "Saldo WIN", v: d.win.saldo || [] }], { dec: 0, zero: true });
+    grafico("g-imb", t, [{ nome: "WIN", v: d.win.imb }, { nome: "BOVA11", v: d.bova.imb }], { dec: 3, zero: true });
+    grafico("g-bova", t, [{ nome: "BOVA11", v: d.bova.mid }], { dec: 2 });
+
+    const o = d.opcoes, vl = v => v.split("-").reverse().slice(0, 2).join("/");
+    tilesOpcoes(o);
+    const pct = s => s.map(v => v == null ? null : v * 100);
+    grafico("g-atm", t, o.vencs.map((v, i) => ({ nome: vl(v), v: pct(o.atm[v]), slot: i })), { dec: 2 });
+    grafico("g-rr", t, o.vencs.map((v, i) => ({ nome: vl(v), v: pct(o.rr25[v]), slot: i })), { dec: 2, zero: true });
+    // smile: uniao dos strikes
+    const ks = [...new Set(o.vencs.flatMap(v => o.smile[v].map(p => p[0])))].sort((a, b) => a - b);
+    grafico("g-smile", ks, o.vencs.map((v, i) => {
+      const m = new Map(o.smile[v]); return { nome: vl(v), v: ks.map(k => m.has(k) ? m.get(k) * 100 : null), slot: i };
+    }), { tempo: false, dec: 2, pontos: true, nomeX: "strike" });
+    grafico("g-fluxo", t, [{ nome: "Calls", v: o.fluxo_call }, { nome: "Puts", v: o.fluxo_put }], { dec: 0, zero: true });
+
+    const m = d.macro;
+    [["g-m1", "brasil_exterior"], ["g-m2", "commodities"], ["g-m3", "domestico"]].forEach(([id, k]) =>
+      grafico(id, t, Object.entries(m.graficos[k]).map(([s, v]) => ({ nome: s, v })), { dec: 2, zero: true, fmtY: v => sinal(v, 2) + "%" }));
+    grafico("g-di", m.di.vertices.map((_, i) => i),
+      [{ nome: "início da janela", v: m.di.inicio }, { nome: "agora", v: m.di.fim }],
+      { tempo: false, xCat: m.di.vertices.map(s => s.replace("DI1", "")), dec: 3, pontos: true, nomeX: "vértice" });
+    grafico("g-incl", t, [{ nome: "F33 − F27", v: m.inclinacao }], { dec: 1 });
+    correl(m.correl);
+  }
+
+  async function carregar() {
+    $("#conteudo").classList.add("carregando");
+    try {
+      const r = await fetch(`/api/dados?janela=${janela}`);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.erro || r.status);
+      $("#erro").textContent = "";
+      render(d);
+    } catch (e) {
+      $("#erro").textContent = `Erro ao atualizar: ${e.message}`;
+    } finally {
+      $("#conteudo").classList.remove("carregando");
+    }
+  }
+
+  // ---------- controles
+  const salvo = (() => { try { return localStorage.getItem("janela"); } catch { return null; } })();
+  if (salvo && document.querySelector(`#janelas [data-j="${salvo}"]`)) janela = salvo;
+  document.querySelectorAll("#janelas button").forEach(b => {
+    b.setAttribute("aria-pressed", b.dataset.j === janela);
+    b.onclick = () => {
+      janela = b.dataset.j;
+      try { localStorage.setItem("janela", janela); } catch {}
+      document.querySelectorAll("#janelas button").forEach(x => x.setAttribute("aria-pressed", x === b));
+      carregar();
+    };
+  });
+  const agendar = () => { clearInterval(timer); if ($("#auto").checked) timer = setInterval(carregar, 10000); };
+  $("#auto").onchange = agendar;
+
+  // redimensiona e refaz ao trocar o tema (as cores do uPlot sao fixadas na criacao)
+  new ResizeObserver(() => Object.entries(graficos).forEach(([id, g]) => {
+    const w = document.getElementById(id).clientWidth; if (w && w !== g.u.width) g.u.setSize({ width: w, height: g.u.height });
+  })).observe(document.body);
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    Object.values(graficos).forEach(g => g.u.destroy());
+    Object.keys(graficos).forEach(k => delete graficos[k]);
+    if (ultimo) render(ultimo);
+  });
+
+  carregar();
+  agendar();
+})();
+</script>
+</body>
+</html>
