@@ -13,6 +13,8 @@ import sqlite3
 import numpy as np
 import pandas as pd
 
+LACUNA_MAX_MS = 300_000  # salto > 5 min entre snapshots consecutivos = ts antigo/pausa
+TOLERANCIA_S = 3         # tolerancia para achar o snapshot do horizonte
 FEATURES = ["imbalance_total", "imbalance_near", "imbalance_pond", "micro_desvio", "delta", "delta_15s"]
 
 
@@ -21,7 +23,14 @@ def carregar(db):
     df = pd.read_sql("SELECT * FROM snapshots ORDER BY sessao, ts_ms", con)
     con.close()
     df["micro_desvio"] = df["microprice"] - df["mid"]
-    return df
+    n0 = len(df)
+    df = df[df["spread"] > 0]  # livro cruzado/travado (leilao, abertura): metricas sem sentido
+    # snapshots iniciais com hora velha (ultimo tick pre-abertura): o proximo ts esta muito a frente
+    salto = df.groupby("sessao")["ts_ms"].diff(-1).abs()
+    df = df[~(salto > LACUNA_MAX_MS)]
+    if n0 - len(df):
+        print(f"(descartados {n0 - len(df)} snapshots: spread<=0 ou hora velha)")
+    return df.reset_index(drop=True)
 
 
 def montar(df, h):
@@ -34,6 +43,9 @@ def montar(df, h):
         alvo = t.index + pd.Timedelta(seconds=h)
         pos = t.index.searchsorted(alvo)
         ok = pos < len(t)
+        # so vale se o snapshot futuro esta perto do alvo (nao atravessa lacunas/pausas na coleta)
+        ts = t.index.to_numpy()
+        ok[ok] = (ts[pos[ok]] - alvo.to_numpy()[ok]) <= np.timedelta64(int(TOLERANCIA_S * 1000), "ms")
         g["ret_fut"] = np.nan
         g.loc[ok, "ret_fut"] = t["mid"].to_numpy()[pos[ok]] - g["mid"].to_numpy()[ok]
         partes.append(g)
