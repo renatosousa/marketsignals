@@ -14,7 +14,8 @@ mesma base de tempo para todos os ativos):
 Obs.: o MT5 nao informa numero de ordens; so o volume agregado por nivel.
 
 Uso: python coletor_book.py [SIMBOLO] [SEGUNDOS] [--db dados/book.db] [--intervalo 1.0]
-                            [--niveis 5] [--parede-mult 2.0] [--parede-min 200] [--sem-trades]
+                            [--niveis 5] [--parede-mult 2.0] [--parede-min 200]
+                            [--sem-trades | --trades-tick]
      (SEGUNDOS=0 roda ate Ctrl+C)
 """
 import argparse
@@ -22,9 +23,10 @@ import sqlite3
 import statistics
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 import MetaTrader5 as mt5
+
+import banco
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -115,6 +117,46 @@ def detectar_eventos(ts, ant, atual, limiar, lado):
     return eventos
 
 
+def negocio_por_tick(tk, estado, acc):
+    """Detecta negocio novo comparando o tick atual com a leitura anterior (modo --trades-tick).
+
+    Negocio visto direto: tick com TICK_FLAG_LAST e hora nova; agressor pelas flags BUY/SELL.
+    Negocio que escapou (o tick seguinte ja era so de bid/ask): ultimo preco/volume mudaram;
+    agressor pela posicao do preco contra o bid/ask da leitura anterior. Rajadas entre duas
+    leituras contam como um negocio so; negocios repetidos com o mesmo preco e volume sem tick
+    proprio visto passam despercebidos.
+    """
+    vol = tk.volume_real or float(tk.volume)
+    chave = (tk.last, vol)
+    visto = bool(tk.flags & mt5.TICK_FLAG_LAST) and tk.time_msc != estado.get("ms")
+    if "chave" in estado and tk.last > 0 and (visto or chave != estado["chave"]):
+        if visto and tk.flags & mt5.TICK_FLAG_BUY:
+            lado = "comp"
+        elif visto and tk.flags & mt5.TICK_FLAG_SELL:
+            lado = "vend"
+        elif estado["ask"] > 0 and tk.last >= estado["ask"]:
+            lado = "comp"
+        elif estado["bid"] > 0 and tk.last <= estado["bid"]:
+            lado = "vend"
+        else:
+            lado = None
+        acc["n"] += 1
+        if lado:
+            acc[lado] += vol
+    if tk.flags & mt5.TICK_FLAG_LAST:
+        estado["ms"] = tk.time_msc
+    estado.update(chave=chave, bid=tk.bid, ask=tk.ask)
+
+
+def gravar(db, pend):
+    """Uma transacao curta com tudo o que esta pendente."""
+    db.executemany("INSERT OR REPLACE INTO snapshots VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                   pend["snap"])
+    db.executemany("INSERT INTO niveis VALUES (?,?,?,?,?,?,?)", pend["niv"])
+    db.executemany("INSERT INTO eventos VALUES (?,?,?,?,?,?,?,?,?,?)", pend["ev"])
+    db.commit()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("symbol", nargs="?", default="WIN$")
@@ -125,17 +167,17 @@ def main():
     ap.add_argument("--parede-mult", type=float, default=2.0,
                     help="parede = nivel com volume >= mult x mediana dos niveis do livro")
     ap.add_argument("--parede-min", type=float, default=200.0, help="volume minimo absoluto de uma parede")
-    ap.add_argument("--sem-trades", action="store_true",
-                    help="so livro; nao le ticks (campos de agressao ficam NULL). Para ativos cujo "
-                         "copy_ticks trava o terminal (ex.: BOVA11 na Genial)")
+    fonte = ap.add_mutually_exclusive_group()
+    fonte.add_argument("--sem-trades", action="store_true",
+                       help="so livro; campos de agressao ficam NULL")
+    fonte.add_argument("--trades-tick", action="store_true",
+                       help="agressao pelo tick em tempo real (symbol_info_tick), sem copy_ticks. Para ativos "
+                            "sem historico de ticks no servidor (acoes na Genial: copy_ticks espera ~100 s "
+                            "e trava o terminal). Pode perder negocios em rajada; ver negocio_por_tick")
     args = ap.parse_args()
     sym = args.symbol
 
-    Path(args.db).parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(args.db, timeout=30)  # varios coletores podem gravar no mesmo banco
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("PRAGMA synchronous=NORMAL")
-    db.executescript(SCHEMA)
+    db = banco.abrir(args.db, SCHEMA)
 
     if not mt5.initialize():
         raise SystemExit(f"initialize falhou: {mt5.last_error()}")
@@ -149,6 +191,8 @@ def main():
     ant_b, ant_a = {}, {}
     limiar = None
     ev_pendentes = []
+    pend = dict(snap=[], niv=[], ev=[])  # linhas ainda nao gravadas (banco ocupado)
+    estado_tick = {}
     acc = dict(n=0, comp=0.0, vend=0.0)
     prox = 0.0
     n_snap = n_ev = 0
@@ -168,7 +212,7 @@ def main():
             offset = max(offset, tk.time_msc - local)
             agora = int(local + offset)
 
-            ticks = None if args.sem_trades else \
+            ticks = None if args.sem_trades or args.trades_tick else \
                 mt5.copy_ticks_range(sym, utc(ultimo_msc), utc(agora + 1000), mt5.COPY_TICKS_TRADE)
             if ticks is not None:
                 for t in ticks:
@@ -183,6 +227,8 @@ def main():
                         acc["comp"] += vol
                     elif fl & mt5.TICK_FLAG_SELL:
                         acc["vend"] += vol
+            elif args.trades_tick:
+                negocio_por_tick(tk, estado_tick, acc)
 
             livro = mt5.market_book_get(sym)
             bids = asks = None
@@ -205,34 +251,35 @@ def main():
                 delta = acc["comp"] - acc["vend"]
                 saldo += delta
                 fluxo = (None,) * 5 if args.sem_trades else (acc["n"], acc["comp"], acc["vend"], delta, saldo)
-                db.execute(
-                    "INSERT OR REPLACE INTO snapshots VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                pend["snap"].append(
                     (agora, sessao, sym, m["bid"], m["ask"], m["mid"], m["spread"], tk.last,
                      m["vol_bid_total"], m["vol_ask_total"], m["vol_bid_near"], m["vol_ask_near"],
                      m["imbalance_total"], m["imbalance_near"], m["imbalance_pond"], m["microprice"],
                      m["niveis_bid"], m["niveis_ask"], *fluxo))
-                db.executemany(
-                    "INSERT INTO niveis VALUES (?,?,?,?,?,?,?)",
-                    [(agora, sessao, sym, lado, i, p, v)
-                     for lado, lista in (("COMPRA", bids), ("VENDA", asks))
-                     for i, (p, v) in enumerate(lista[:args.niveis], 1)])
-                if ev_pendentes:
-                    db.executemany(
-                        "INSERT INTO eventos VALUES (?,?,?,?,?,?,?,?,?,?)",
-                        [(ts, sessao, sym, tipo, lado, p, a, d, dist, lim)
-                         for ts, tipo, lado, p, a, d, dist, lim in ev_pendentes])
-                    n_ev += len(ev_pendentes)
-                    ev_pendentes = []
-                db.commit()
-                n_snap += 1
+                pend["niv"] += [(agora, sessao, sym, lado, i, p, v)
+                                for lado, lista in (("COMPRA", bids), ("VENDA", asks))
+                                for i, (p, v) in enumerate(lista[:args.niveis], 1)]
+                pend["ev"] += [(ts, sessao, sym, tipo, lado, p, a, d, dist, lim)
+                               for ts, tipo, lado, p, a, d, dist, lim in ev_pendentes]
+                ev_pendentes = []
                 acc = dict(n=0, comp=0.0, vend=0.0)
+                try:
+                    gravar(db, pend)
+                    n_snap += len(pend["snap"])
+                    n_ev += len(pend["ev"])
+                    pend = dict(snap=[], niv=[], ev=[])
+                except sqlite3.OperationalError as e:  # banco ocupado: guarda e tenta no proximo snapshot
+                    db.rollback()
+                    print(f"aviso: gravacao adiada ({e}); {len(pend['snap'])} snapshots pendentes", flush=True)
             time.sleep(0.02)
     except KeyboardInterrupt:
         pass
     finally:
         mt5.market_book_release(sym)
         mt5.shutdown()
-        db.commit()
+        if pend["snap"]:
+            gravar(db, pend)
+            n_snap += len(pend["snap"])
         db.close()
     fluxo = "sem trades" if args.sem_trades else f"saldo de agressao da sessao: {saldo:+.0f}"
     print(f"Snapshots: {n_snap} | eventos: {n_ev} | {fluxo}")

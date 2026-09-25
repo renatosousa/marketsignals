@@ -30,11 +30,12 @@ import math
 import sqlite3
 import time
 import urllib.request
-from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
 import MetaTrader5 as mt5
 import numpy as np
+
+import banco
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS opcoes_cotacoes (
@@ -183,6 +184,13 @@ def resumo_vencimento(cot, spot, t, r):
     return fwd, atm, ivc, ivp, len(com_iv)
 
 
+def gravar(db, cotacoes, resumos):
+    db.executemany("INSERT INTO opcoes_cotacoes VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", cotacoes)
+    db.executemany("INSERT OR REPLACE INTO opcoes_resumo VALUES "
+                   "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", resumos)
+    db.commit()
+
+
 # ---------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser()
@@ -202,11 +210,7 @@ def main():
     else:
         r, origem_taxa = taxa_selic(0.15)
 
-    Path(args.db).parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(args.db, timeout=30)
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("PRAGMA synchronous=NORMAL")
-    db.executescript(SCHEMA)
+    db = banco.abrir(args.db, SCHEMA)
 
     if not mt5.initialize():
         raise SystemExit(f"initialize falhou: {mt5.last_error()}")
@@ -219,6 +223,7 @@ def main():
     ultimo_iv = {}    # symbol -> (iv, delta)
     fluxo = {}        # vencimento -> contadores desde o ultimo resumo
     prox_resumo = 0.0
+    pend_cot, pend_res = [], []
     n_cot = n_res = 0
     fim = time.time() + args.segundos if args.segundos > 0 else float("inf")
     print(f"Coletando opcoes de {sub} -> {args.db} (sessao {sessao}, taxa {origem_taxa}). Ctrl+C para parar.",
@@ -281,9 +286,7 @@ def main():
                 ultimo_iv[nome] = (iv, dl)
                 linhas.append((agora_ms, sessao, sub, nome, str(venc), tipo, k,
                                o.bid, o.ask, o.last, atual[3], s_venc, iv, dl))
-            if linhas:
-                db.executemany("INSERT INTO opcoes_cotacoes VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", linhas)
-                n_cot += len(linhas)
+            pend_cot += linhas
 
             if time.time() >= prox_resumo:
                 prox_resumo = time.time() + args.intervalo_resumo
@@ -297,20 +300,32 @@ def main():
                     rr = ivc - ivp if ivc is not None and ivp is not None else None
                     bf = (ivc + ivp) / 2 - atm if rr is not None and atm is not None else None
                     f = fluxo.pop(venc, {})
-                    db.execute(
-                        "INSERT OR REPLACE INTO opcoes_resumo VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    pend_res.append(
                         (agora_ms, sessao, sub, str(venc), t, spot, fwd, r, atm, ivc, ivp, rr, bf, len(cot), n_iv,
                          *(f.get(f"neg_{x}", 0) for x in ("call_compra", "call_venda", "put_compra", "put_venda")),
                          *(f.get(f"vol_{x}", 0.0) for x in ("call_compra", "call_venda", "put_compra", "put_venda"))))
-                    n_res += 1
-                db.commit()
+
+            # transacao curta a cada ciclo: segurar o lock de escrita entre ciclos travava os outros coletores
+            if pend_cot or pend_res:
+                try:
+                    gravar(db, pend_cot, pend_res)
+                    n_cot += len(pend_cot)
+                    n_res += len(pend_res)
+                    pend_cot, pend_res = [], []
+                except sqlite3.OperationalError as e:  # banco ocupado: tenta de novo no proximo ciclo
+                    db.rollback()
+                    print(f"aviso: gravacao adiada ({e}); {len(pend_cot) + len(pend_res)} linhas pendentes",
+                          flush=True)
 
             time.sleep(max(0.0, args.intervalo - (time.time() - t_loop)))
     except KeyboardInterrupt:
         pass
     finally:
         mt5.shutdown()
-        db.commit()
+        if pend_cot or pend_res:
+            gravar(db, pend_cot, pend_res)
+            n_cot += len(pend_cot)
+            n_res += len(pend_res)
         db.close()
     print(f"Linhas de cotacao: {n_cot} | resumos: {n_res}", flush=True)
 

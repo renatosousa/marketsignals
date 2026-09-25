@@ -6,7 +6,8 @@ New-Item -ItemType Directory -Force dados | Out-Null
 # nome do log -> argumentos do rodar_coleta.py (ativo, --db, extras)
 $coletas = [ordered]@{
     'WIN'           = @('WIN$', '--db', 'dados/book.db')
-    'BOVA11'        = @('BOVA11', '--db', 'dados/book.db', '--sem-trades')  # copy_ticks do BOVA11 trava o MT5 da Genial
+    # acoes nao tem historico de ticks na Genial (copy_ticks espera ~100 s e trava o MT5): agressao pelo tick ao vivo
+    'BOVA11'        = @('BOVA11', '--db', 'dados/book.db', '--trades-tick')
     'BOVA11_opcoes' = @('BOVA11', '--db', 'dados/book.db', '--script', 'coletor_opcoes.py')
     'MACRO'         = @('MACRO', '--db', 'dados/book.db', '--script', 'coletor_macro.py')
 }

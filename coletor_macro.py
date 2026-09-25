@@ -16,9 +16,10 @@ import argparse
 import sqlite3
 import time
 from datetime import datetime
-from pathlib import Path
 
 import MetaTrader5 as mt5
+
+import banco
 
 # grupo -> ativos. ISP$/WSP$/T10$ da B3 ficam parados (apontam p/ contrato vencido); VIX/US500 nao existem.
 ATIVOS = {
@@ -46,11 +47,7 @@ def main():
     ap.add_argument("--intervalo", type=float, default=1.0)
     args = ap.parse_args()
 
-    Path(args.db).parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(args.db, timeout=30)
-    db.execute("PRAGMA journal_mode=WAL")
-    db.execute("PRAGMA synchronous=NORMAL")
-    db.executescript(SCHEMA)
+    db = banco.abrir(args.db, SCHEMA)
 
     if not mt5.initialize():
         raise SystemExit(f"initialize falhou: {mt5.last_error()}")
@@ -63,8 +60,8 @@ def main():
     sessao = datetime.now().strftime("%Y%m%d_%H%M%S")
     offset = float("-inf")
     anterior = {}
+    pendentes = []
     n = 0
-    prox_commit = time.time() + 5
     fim = time.time() + args.segundos if args.segundos > 0 else float("inf")
     print(f"Coletando {len(grupo_de)} ativos macro -> {args.db} (sessao {sessao}). Ctrl+C para parar.", flush=True)
 
@@ -80,25 +77,31 @@ def main():
             # relogio = local + maior offset visto (hora de tick nunca passa da hora do servidor)
             offset = max(offset, max(tk.time_msc for tk in ticks.values()) - local)
             agora = int(local + offset)
-            linhas = []
             for s, tk in ticks.items():
                 cot = (tk.bid, tk.ask, tk.last)
                 if anterior.get(s) == cot:
                     continue
                 anterior[s] = cot
                 mid = (tk.bid + tk.ask) / 2 if tk.bid > 0 and tk.ask > 0 else (tk.last or None)
-                linhas.append((agora, sessao, s, grupo_de[s], tk.bid, tk.ask, tk.last, mid))
-            if linhas:
-                db.executemany("INSERT INTO macro_cotacoes VALUES (?,?,?,?,?,?,?,?)", linhas)
-                n += len(linhas)
-            if time.time() >= prox_commit:
-                db.commit()
-                prox_commit = time.time() + 5
+                pendentes.append((agora, sessao, s, grupo_de[s], tk.bid, tk.ask, tk.last, mid))
+            # transacao curta: segurar o lock de escrita entre ciclos travava os outros coletores
+            if pendentes:
+                try:
+                    db.executemany("INSERT INTO macro_cotacoes VALUES (?,?,?,?,?,?,?,?)", pendentes)
+                    db.commit()
+                    n += len(pendentes)
+                    pendentes = []
+                except sqlite3.OperationalError as e:  # banco ocupado: tenta de novo no proximo ciclo
+                    db.rollback()
+                    print(f"aviso: gravacao adiada ({e}); {len(pendentes)} linhas pendentes", flush=True)
             time.sleep(max(0.0, args.intervalo - (time.time() - t_loop)))
     except KeyboardInterrupt:
         pass
     finally:
         mt5.shutdown()
+        if pendentes:
+            db.executemany("INSERT INTO macro_cotacoes VALUES (?,?,?,?,?,?,?,?)", pendentes)
+            n += len(pendentes)
         db.commit()
         db.close()
     print(f"Linhas gravadas: {n}", flush=True)

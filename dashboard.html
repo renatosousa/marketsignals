@@ -112,6 +112,7 @@ th { color: var(--ink-2); font-weight: 600; }
       <div class="card"><h3>WIN · saldo de agressão acumulado na janela</h3><div class="unid">contratos (compra agressora − venda agressora)</div><div class="graf" id="g-saldo"></div></div>
       <div class="card"><h3>Pressão do livro</h3><div class="unid">imbalance ponderado, −1 vendedor a +1 comprador (média do intervalo)</div><div class="graf" id="g-imb"></div></div>
       <div class="card"><h3>BOVA11 · preço</h3><div class="unid">R$ (mid)</div><div class="graf" id="g-bova"></div></div>
+      <div class="card"><h3>BOVA11 · saldo de agressão acumulado na janela</h3><div class="unid">cotas; estimado pelo tick ao vivo (pode perder negócios em rajada)</div><div class="graf" id="g-saldo-bova"></div></div>
     </div>
 
     <h2>Opções BOVA11</h2>
@@ -272,6 +273,7 @@ th { color: var(--ink-2); font-weight: 600; }
     grafico("g-saldo", t, [{ nome: "Saldo WIN", v: d.win.saldo || [] }], { dec: 0, zero: true });
     grafico("g-imb", t, [{ nome: "WIN", v: d.win.imb }, { nome: "BOVA11", v: d.bova.imb }], { dec: 3, zero: true });
     grafico("g-bova", t, [{ nome: "BOVA11", v: d.bova.mid }], { dec: 2 });
+    grafico("g-saldo-bova", t, [{ nome: "Saldo BOVA11", v: d.bova.saldo || [] }], { dec: 0, zero: true });
 
     const o = d.opcoes, vl = v => v.split("-").reverse().slice(0, 2).join("/");
     tilesOpcoes(o);
