@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 import MetaTrader5 as mt5
 
 import banco
+from relogio import Relogio
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -186,7 +187,7 @@ def main():
 
     sessao = datetime.now().strftime("%Y%m%d_%H%M%S")
     ultimo_msc = int(mt5.symbol_info_tick(sym).time_msc)
-    offset = float("-inf")
+    relogio = Relogio()
     saldo = 0.0
     ant_b, ant_a = {}, {}
     limiar = None
@@ -205,12 +206,9 @@ def main():
             if tk is None:  # terminal desconectado / sem cotacao: espera e tenta de novo
                 time.sleep(1)
                 continue
-            # relogio = local + offset p/ o servidor. A hora do tick nunca passa da hora real do
-            # servidor, entao o maior offset visto e a melhor estimativa. Usar a hora do tick
-            # direto repete o ts quando o ativo fica sem negocio (snapshots se sobrescreviam).
-            local = time.time() * 1000
-            offset = max(offset, tk.time_msc - local)
-            agora = int(local + offset)
+            # relogio do PC + offset p/ o servidor (ver relogio.py). Usar a hora do tick direto
+            # repete o ts quando o ativo fica sem negocio (snapshots se sobrescreviam).
+            agora = relogio.agora(tk.time_msc)
 
             ticks = None if args.sem_trades or args.trades_tick else \
                 mt5.copy_ticks_range(sym, utc(ultimo_msc), utc(agora + 1000), mt5.COPY_TICKS_TRADE)

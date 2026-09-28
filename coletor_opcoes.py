@@ -36,6 +36,7 @@ import MetaTrader5 as mt5
 import numpy as np
 
 import banco
+from relogio import Relogio
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS opcoes_cotacoes (
@@ -217,7 +218,7 @@ def main():
     mt5.symbol_select(sub, True)
 
     sessao = datetime.now().strftime("%Y%m%d_%H%M%S")
-    offset = float("-inf")
+    relogio = Relogio()
     series, ultima_varredura = {}, 0.0
     anterior = {}     # symbol -> (bid, ask, last, last_vol, time_msc)
     ultimo_iv = {}    # symbol -> (iv, delta)
@@ -236,9 +237,7 @@ def main():
             if tk is None or tk.time_msc == 0:
                 time.sleep(1)
                 continue
-            local = time.time() * 1000
-            offset = max(offset, tk.time_msc - local)
-            agora_ms = int(local + offset)
+            agora_ms = relogio.agora(tk.time_msc)
             agora = datetime.fromtimestamp(agora_ms / 1000, tz=timezone.utc).replace(tzinfo=None)  # hora BR
             spot = tk.last or (tk.bid + tk.ask) / 2
 

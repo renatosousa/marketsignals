@@ -10,6 +10,8 @@ $coletas = [ordered]@{
     'BOVA11'        = @('BOVA11', '--db', 'dados/book.db', '--trades-tick')
     'BOVA11_opcoes' = @('BOVA11', '--db', 'dados/book.db', '--script', 'coletor_opcoes.py')
     'MACRO'         = @('MACRO', '--db', 'dados/book.db', '--script', 'coletor_macro.py')
+    # exige o IB Gateway aberto e logado (porta 4001); sem ele o coletor sai e o supervisor tenta de novo
+    'IBKR'          = @('IBKR', '--db', 'dados/book.db', '--script', 'coletor_ibkr.py')
 }
 
 $rodando = Get-CimInstance Win32_Process -Filter "Name like 'python%'" |

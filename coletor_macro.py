@@ -20,6 +20,7 @@ from datetime import datetime
 import MetaTrader5 as mt5
 
 import banco
+from relogio import Relogio
 
 # grupo -> ativos. ISP$/WSP$/T10$ da B3 ficam parados (apontam p/ contrato vencido); VIX/US500 nao existem.
 ATIVOS = {
@@ -58,7 +59,7 @@ def main():
             del grupo_de[s]
 
     sessao = datetime.now().strftime("%Y%m%d_%H%M%S")
-    offset = float("-inf")
+    relogio = Relogio()
     anterior = {}
     pendentes = []
     n = 0
@@ -73,10 +74,7 @@ def main():
             if not ticks:
                 time.sleep(1)
                 continue
-            local = time.time() * 1000
-            # relogio = local + maior offset visto (hora de tick nunca passa da hora do servidor)
-            offset = max(offset, max(tk.time_msc for tk in ticks.values()) - local)
-            agora = int(local + offset)
+            agora = relogio.agora(*(tk.time_msc for tk in ticks.values()))
             for s, tk in ticks.items():
                 cot = (tk.bid, tk.ask, tk.last)
                 if anterior.get(s) == cot:
