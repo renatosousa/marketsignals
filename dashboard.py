@@ -202,13 +202,38 @@ def dados(con, janela):
 
     return dict(
         agora=agora / 1000, t0=t0 / 1000, t1=t1 / 1000, bucket_s=b / 1000, tempos=g.tempos(),
-        status=status, db_mb=db_mb,
+        status=status, db_mb=db_mb, regime=regime(con, t1),
         win=win, bova=bova,
         opcoes=dict(vencs=vencs, atm=atm, rr25=rr, fluxo_call=list(np.cumsum(fc)), fluxo_put=list(np.cumsum(fp)),
                     tiles=tiles, smile=smile),
         macro=dict(graficos=graficos, di=dict(vertices=DI_VERTICES, inicio=di_ini, fim=di_fim),
                    inclinacao=incl, correl=correl,
                    ultimo={s: next((x for x in reversed(macro_niv[s]) if x is not None), None) for s in todos}),
+    )
+
+
+def regime(con, t1):
+    """Regime do WIN no dia de t1 (tabela regime_live, do coletor_regime.py): estado atual e a serie de
+    oscilacao por hora em pontos - realizada, normal do horario e a que o modelo previu 1 hora antes."""
+    try:
+        inicio = t1 - t1 % 86400_000
+        rows = con.execute("SELECT * FROM regime_live WHERE ts_ms BETWEEN ? AND ? ORDER BY ts_ms",
+                           (inicio, t1)).fetchall()
+        cols = [c[1] for c in con.execute("PRAGMA table_info(regime_live)")]
+    except sqlite3.OperationalError:
+        return None
+    if not rows:
+        return None
+    df = [dict(zip(cols, r)) for r in rows]
+    atual = df[-1] | {"alertas": json.loads(df[-1]["alertas"] or "[]")}
+    pts = lambda rv, p: rv / 100 * p if rv is not None and p else None
+    prev_por_ts = {r["ts_ms"] + 3600_000: pts(r["rv_prev_1h"], r["preco"]) for r in df}
+    return dict(
+        atual=atual,
+        t=[r["ts_ms"] / 1000 for r in df],
+        realizada=[pts(r["rv_60"], r["preco"]) for r in df],
+        normal=[pts(r["rv_norm"], r["preco"]) for r in df],
+        prevista=[prev_por_ts.get(r["ts_ms"]) for r in df],
     )
 
 

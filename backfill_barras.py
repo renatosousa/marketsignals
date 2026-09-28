@@ -1,6 +1,6 @@
 """Baixa barras de 1 min (historico) do MT5 e da IBKR para a tabela barras_1m do book.db.
 
-  MT5 : WIN$, WDO$ (series continuas da corretora), em blocos de 10 dias.
+  MT5 : WIN$, WDO$ (series continuas da corretora) e vertices do DI1, em blocos de 10 dias.
   IBKR: futuros emendados por vencimento (troca ROLAGEM dias antes do ultimo dia de negociacao
         de cada contrato), VIX e EWZ. Somente leitura (readonly=True).
 
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS barras_1m (
 BR = timedelta(hours=-3)  # Brasil sem horario de verao desde 2019
 PAUSA_IB = 10.0           # limite da IBKR: ~60 pedidos de historico a cada 10 min
 
-MT5_ATIVOS = ["WIN$", "WDO$"]
+MT5_ATIVOS = ["WIN$", "WDO$", "DI1F27", "DI1F29", "DI1F33"]  # DI: close e TAXA (% a.a.), nao preco
 # nome -> (simbolo, bolsa, dias de rolagem antes do ultimo dia, meses validos ou None)
 IB_FUTUROS = {
     "IB:ES": ("ES", "CME", 8, None),

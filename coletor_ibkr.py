@@ -26,6 +26,8 @@ import banco
 from coletor_macro import SCHEMA
 
 CLIENT_ID = 11
+# medidas lentas de contexto: 15 min de atraso nao importam (ver estudo_regime.py); gravadas mesmo atrasadas
+ACEITAR_ATRASADO = {"IB:VIX"}
 
 # nome no banco -> contrato. Futuros: ContFuture resolve o vencimento da frente.
 CONTRATOS = {
@@ -105,7 +107,7 @@ def main():
             agora = agora_br_ms()
             for nome, t in tickers.items():
                 tempo_real = t.marketDataType in (1, 2)
-                if not tempo_real and not args.aceitar_atrasado:
+                if not tempo_real and not args.aceitar_atrasado and nome not in ACEITAR_ATRASADO:
                     if nome not in avisados:
                         print(f"aviso: {nome} chegando atrasado (sem assinatura ativa); nao sera gravado", flush=True)
                         avisados.add(nome)

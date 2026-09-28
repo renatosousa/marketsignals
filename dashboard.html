@@ -75,6 +75,11 @@ th { color: var(--ink-2); font-weight: 600; }
 .cbar span { flex: 1; display: flex; }
 .cbar span:first-child { justify-content: flex-end; border-right: 1px solid var(--axis); }
 .nota { color: var(--muted); font-size: 12px; margin-top: 8px; }
+.alertas ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.alertas li { display: flex; gap: 8px; align-items: baseline; font-size: 13px; color: var(--ink); }
+.alertas li b { font-size: 12px; color: var(--ink-2); min-width: 64px; }
+.alertas i { font-style: normal; font-weight: 700; }
+.alertas .serious i { color: #ec835a; } .alertas .warning i { color: var(--warning); } .alertas .good i { color: var(--good); }
 .erro { color: var(--critical); font-size: 13px; }
 #conteudo.carregando { opacity: .6; transition: opacity .2s; }
 /* uPlot: legenda com tinta de texto; a cor fica so no marcador */
@@ -105,6 +110,17 @@ th { color: var(--ink-2); font-weight: 600; }
     <section>
       <div class="tiles" id="status"></div>
     </section>
+
+    <h2>Regime do WIN <span class="sub" id="regime-sub"></span></h2>
+    <div class="tiles" id="tiles-regime"></div>
+    <div class="card alertas" id="alertas" style="margin-top:12px"></div>
+    <div class="grade" style="margin-top:12px">
+      <div class="card"><h3>Oscilação do WIN por hora</h3><div class="unid">pontos (1 desvio): última hora realizada, normal do horário e o que o modelo previu uma hora antes</div><div class="graf" id="g-regime"></div></div>
+      <div class="card"><h3>Como ler</h3>
+        <p class="nota" style="font-size:13px;color:var(--ink-2)">O modelo prevê <b>quanto</b> o WIN deve oscilar (volatilidade), não para onde vai: no estudo com 178 pregões, direção e tendência não foram previsíveis nem pelo WIN nem pelo macro.<br><br>
+        <b>Próxima hora ±N pts</b> é a oscilação típica (1 desvio) esperada: útil para dimensionar stop, alvo e tamanho da posição. Cerca de 2 em cada 3 horas ficam dentro dessa faixa.<br><br>
+        O macro entra como contexto: VIX acima de 20 eleva a vol esperada; DI e dólar mostram se o dia está atípico agora, sem antecipar o WIN.</p></div>
+    </div>
 
     <h2>Índice e BOVA11 · livro e fluxo</h2>
     <div class="grade">
@@ -262,12 +278,45 @@ th { color: var(--ink-2); font-weight: 600; }
       "</tbody></table></div>";
   }
 
+  function regime(r) {
+    if (!r) {
+      $("#tiles-regime").innerHTML = '<div class="vazio">sem dados de regime hoje (coletor_regime.py)</div>';
+      $("#alertas").innerHTML = ""; $("#regime-sub").textContent = "";
+      grafico("g-regime", [], [{ nome: "realizada", v: [] }]);
+      return;
+    }
+    const a = r.atual, p = a.preco;
+    const x = v => v == null ? "–" : fmt(v, 2) + "×";
+    const tile = (rot, val, det) => `<div class="card tile"><div class="rot">${rot}</div><div class="val">${val}</div><div class="det">${det}</div></div>`;
+    const diaPct = a.rv_dia_prev && a.rv_dia_real != null ? (a.rv_dia_real / a.rv_dia_prev) ** 2 * 100 : null;
+    $("#regime-sub").textContent = `· atualizado ${hora(a.ts_ms / 1000)} · modelo de ${a.modelo ? a.modelo.slice(0, 16).replace("T", " ") : "–"}`;
+    $("#tiles-regime").innerHTML = [
+      tile("Regime agora", a.rotulo || "–", `última hora ${x(a.rv_rel)} o normal do horário · eficiência ${a.er_60 != null ? fmt(a.er_60, 2) : "–"}`),
+      tile("Próxima hora", a.faixa_1h_pts ? `±${fmt(a.faixa_1h_pts, 0)} pts` : "–",
+        a.rv_prev_1h ? `oscilação típica prevista · ${x(a.rv_prev_1h / a.rv_norm)} o normal` : "disponível a partir das 10:05"),
+      tile("Volatilidade do dia", diaPct != null ? `${fmt(diaPct, 0)}%` : "–",
+        a.rv_dia_prev ? `da variância prevista já realizada · dia típico ±${fmt(a.rv_dia_prev / 100 * p, 0)} pts` : ""),
+      tile("VIX", a.vix != null ? fmt(a.vix, 1) : "–",
+        `${a.vix_idade_min != null ? `dado de ${fmt(a.vix_idade_min, 0)} min atrás · ` : ""}alerta acima de 20`),
+      tile("DI1F29 no dia", a.di29_var_bps != null ? `${sinal(a.di29_var_bps, 1)} bps` : "–", "vs. fechamento anterior"),
+      tile("Dólar (WDO)", x(a.wdo_rv_rel), "vol da última hora vs. normal do horário"),
+    ].join("");
+    const nivel = { serio: ["serious", "◆", "Sério"], atencao: ["warning", "▲", "Atenção"] };
+    $("#alertas").innerHTML = a.alertas.length
+      ? "<ul>" + a.alertas.map(al => { const [c, i, l] = nivel[al.nivel] || nivel.atencao;
+          return `<li class="${c}"><i aria-hidden="true">${i}</i><b>${l}</b>${al.texto}</li>`; }).join("") + "</ul>"
+      : '<ul><li class="good"><i aria-hidden="true">●</i><b>Normal</b>Nenhum alerta de contexto macro ou de volatilidade agora</li></ul>';
+    grafico("g-regime", r.t, [{ nome: "Realizada (última hora)", v: r.realizada },
+      { nome: "Normal do horário", v: r.normal }, { nome: "Prevista 1 h antes", v: r.prevista }], { dec: 0 });
+  }
+
   // ---------- render
   function render(d) {
     ultimo = d;
     const t = d.tempos;
     $("#atualizado").textContent = `dados até ${hora(d.t1)} · janela ${hora(d.t0)}–${hora(d.t1)} · intervalo de ${fmt(d.bucket_s, 0)} s`;
     status(d);
+    regime(d.regime);
 
     grafico("g-win", t, [{ nome: "WIN", v: d.win.mid }], { dec: 0 });
     grafico("g-saldo", t, [{ nome: "Saldo WIN", v: d.win.saldo || [] }], { dec: 0, zero: true });

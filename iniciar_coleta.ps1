@@ -12,6 +12,8 @@ $coletas = [ordered]@{
     'MACRO'         = @('MACRO', '--db', 'dados/book.db', '--script', 'coletor_macro.py')
     # exige o IB Gateway aberto e logado (porta 4001); sem ele o coletor sai e o supervisor tenta de novo
     'IBKR'          = @('IBKR', '--db', 'dados/book.db', '--script', 'coletor_ibkr.py')
+    # regime do WIN a cada minuto; na partida treina o modelo do dia (modelo_regime.py)
+    'REGIME'        = @('REGIME', '--db', 'dados/book.db', '--script', 'coletor_regime.py')
 }
 
 $rodando = Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
