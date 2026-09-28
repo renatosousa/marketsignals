@@ -19,6 +19,14 @@ $coletas = [ordered]@{
 $rodando = Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
     Where-Object { $_.CommandLine -like '*rodar_coleta.py*' } | ForEach-Object { $_.CommandLine.TrimEnd() }
 
+# dashboard (http://127.0.0.1:8050): processo proprio, fora do horario dos coletores
+$dash = Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object { $_.CommandLine -like '*dashboard.py*' }
+if (-not $dash) {
+    Start-Process -FilePath "$PSScriptRoot\.venv\Scripts\python.exe" -ArgumentList @('-u', 'dashboard.py', '--porta', '8050') `
+        -WorkingDirectory $PSScriptRoot -WindowStyle Hidden `
+        -RedirectStandardOutput 'dados\dashboard.log' -RedirectStandardError 'dados\dashboard.log.err'
+}
+
 foreach ($nome in $coletas.Keys) {
     $args_coleta = $coletas[$nome]
     # nao inicia uma segunda copia do mesmo supervisor (mesmos argumentos)

@@ -47,7 +47,10 @@ for t in tabelas:
     mb = n * bpl / 2**20
     # ritmo pela sessao mais recente de cada (ativo) coletor: linhas / horas cobertas
     cols = [r[1] for r in c.execute(f"PRAGMA table_info({t})")]
-    ativo = "symbol" if "symbol" in cols and t in ("snapshots", "niveis", "eventos") else "subjacente"
+    if "sessao" not in cols:  # historico (barras_1m): nao cresce por pregao
+        print(f"{t:<18}{n:>12,}{bpl:>9.0f}{mb:>13.1f}{'-':>11}{'-':>11}")
+        continue
+    ativo = next((a for a in ("symbol", "subjacente") if a in cols), "sessao")
     # ultima sessao de cada ativo; linhas/h de cada uma, somadas (coletores rodam em paralelo)
     ritmo = sum(r[0] / max(r[1], 0.01) for r in c.execute(f"""
         SELECT count(*), (max(ts_ms) - min(ts_ms)) / 3600000.0 FROM {t}
