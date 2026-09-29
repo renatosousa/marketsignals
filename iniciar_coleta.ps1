@@ -19,12 +19,12 @@ $coletas = [ordered]@{
 $rodando = Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
     Where-Object { $_.CommandLine -like '*rodar_coleta.py*' } | ForEach-Object { $_.CommandLine.TrimEnd() }
 
-# dashboard (http://127.0.0.1:8050): processo proprio, fora do horario dos coletores
-$dash = Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object { $_.CommandLine -like '*dashboard.py*' }
-if (-not $dash) {
-    Start-Process -FilePath "$PSScriptRoot\.venv\Scripts\python.exe" -ArgumentList @('-u', 'dashboard.py', '--porta', '8050') `
+# dashboard (http://127.0.0.1:8050): vigia proprio, fora do horario dos coletores, reinicia se cair
+$vigia = Get-CimInstance Win32_Process -Filter "Name like 'powershell%'" | Where-Object { $_.CommandLine -like '*vigiar_dashboard.ps1*' }
+if (-not $vigia) {
+    Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "$PSScriptRoot\vigiar_dashboard.ps1") `
         -WorkingDirectory $PSScriptRoot -WindowStyle Hidden `
-        -RedirectStandardOutput 'dados\dashboard.log' -RedirectStandardError 'dados\dashboard.log.err'
+        -RedirectStandardOutput 'dados\vigia_dashboard.log' -RedirectStandardError 'dados\vigia_dashboard.log.err'
 }
 
 foreach ($nome in $coletas.Keys) {

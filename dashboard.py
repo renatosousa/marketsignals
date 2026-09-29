@@ -19,6 +19,9 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
+import banco
+import opcoes_manual as om
+
 AQUI = Path(__file__).parent
 PONTOS = 600            # pontos por serie temporal (define o tamanho do balde)
 CACHE_S = 3.0
@@ -265,6 +268,28 @@ class App:
             return corpo
 
 
+def opcoes_manual_ultimo(db_path, subjacente="BOVA11"):
+    """Ultima captura salva de opcoes_manual (colada no dashboard): resumo por vencimento + series."""
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10)
+    try:
+        ts = con.execute("SELECT max(capturado_em) FROM opcoes_manual_resumo WHERE subjacente=?",
+                         (subjacente,)).fetchone()[0]
+        if not ts:
+            return None
+        resumo = [dict(vencimento=r[0], atm_iv=r[1], rr25=r[2], strike_ima=r[3], concentracao_ima=r[4],
+                       suporte=r[5], resistencia=r[6])
+                 for r in con.execute("SELECT vencimento, atm_iv, rr25, strike_ima, concentracao_ima, "
+                                      "suporte, resistencia FROM opcoes_manual_resumo WHERE capturado_em=? "
+                                      "AND subjacente=? ORDER BY vencimento", (ts, subjacente))]
+        series = [dict(vencimento=r[0], tipo=r[1], strike=r[2], coberto=r[3], travado=r[4], descoberto=r[5])
+                 for r in con.execute("SELECT vencimento, tipo, strike, coberto, travado, descoberto "
+                                      "FROM opcoes_manual_series WHERE capturado_em=? AND subjacente=?",
+                                      (ts, subjacente))]
+    finally:
+        con.close()
+    return dict(capturado_em=ts, resumo=resumo, series=series)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(AQUI / "dados" / "book.db"))
@@ -296,8 +321,38 @@ def main():
                 except Exception as e:  # mostra o erro na pagina em vez de derrubar o servidor
                     self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
                                 "application/json")
+            elif u.path == "/api/opcoes-manual":
+                try:
+                    r = opcoes_manual_ultimo(app.db)
+                    self.enviar(200, json.dumps(json_limpo(r), ensure_ascii=False).encode(),
+                                "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
             else:
                 self.enviar(404, b"nao encontrado", "text/plain")
+
+        def do_POST(self):
+            if self.path != "/api/opcoes-manual":
+                return self.enviar(404, b"nao encontrado", "text/plain")
+            try:
+                n = int(self.headers.get("Content-Length", 0))
+                if n <= 0 or n > 2_000_000:
+                    raise ValueError("corpo vazio ou grande demais (colou a tabela inteira?)")
+                texto = self.rfile.read(n).decode("utf-8")
+                df = om.parsear(texto)
+                resumos = om.resumo(df)
+                db = banco.abrir(app.db, om.SCHEMA)
+                try:
+                    ts = om.salvar(db, df, resumos)
+                finally:
+                    db.close()
+                self.enviar(200, json.dumps(json_limpo({"capturado_em": ts, "linhas": len(df),
+                                                        "resumo": resumos}), ensure_ascii=False).encode(),
+                            "application/json; charset=utf-8")
+            except Exception as e:
+                self.enviar(400, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}, ensure_ascii=False).encode(),
+                            "application/json; charset=utf-8")
 
     srv = ThreadingHTTPServer(("127.0.0.1", args.porta), H)
     print(f"Dashboard em http://127.0.0.1:{args.porta}  (db {app.db})", flush=True)

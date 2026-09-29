@@ -81,6 +81,16 @@ th { color: var(--ink-2); font-weight: 600; }
 .alertas i { font-style: normal; font-weight: 700; }
 .alertas .serious i { color: #ec835a; } .alertas .warning i { color: var(--warning); } .alertas .good i { color: var(--good); }
 .erro { color: var(--critical); font-size: 13px; }
+textarea#pm-texto { width: 100%; min-height: 84px; resize: vertical; font: 12px/1.4 ui-monospace, monospace;
+  color: var(--ink); background: var(--page); border: 1px solid var(--border); border-radius: 8px; padding: 8px;
+  box-sizing: border-box; margin-top: 8px; }
+button.botao { font: inherit; font-weight: 650; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--s1); color: #fff; padding: 8px 16px; cursor: pointer; }
+button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor: default; }
+.bars-svg text { fill: var(--ink-2); font-size: 11px; }
+.bars-svg .eixo { stroke: var(--axis); stroke-width: 1; }
+.bars-svg .grid { stroke: var(--grid); stroke-width: 1; }
+.bars-svg .rotulo-ima { fill: var(--ink); font-weight: 650; }
 #conteudo.carregando { opacity: .6; transition: opacity .2s; }
 /* uPlot: legenda com tinta de texto; a cor fica so no marcador */
 .u-legend { font-size: 12px; color: var(--ink-2); text-align: left; }
@@ -139,6 +149,19 @@ th { color: var(--ink-2); font-weight: 600; }
       <div class="card"><h3>Smile atual</h3><div class="unid">vol implícita % por strike (puts abaixo do forward, calls acima)</div><div class="graf" id="g-smile"></div></div>
       <div class="card"><h3>Fluxo estimado em opções</h3><div class="unid">negócios detectados, compra − venda, acumulado na janela (proxy)</div><div class="graf" id="g-fluxo"></div></div>
     </div>
+
+    <h2>Posição em aberto (B3) <span class="sub" id="pm-sub"></span></h2>
+    <div class="card">
+      <h3>Colar tabela da corretora</h3>
+      <div class="unid">Cole a tabela de opções com Coberto/Travado/Descob./Tit./Lanç. (Ctrl+V) e clique em analisar. A B3 não oferece uma API confiável para isso, então a coleta é manual — ver <a href="https://www.b3.com.br/pt_br/market-data-e-indices/servicos-de-dados/market-data/consultas/mercado-a-vista/opcoes/posicoes-em-aberto/" target="_blank" rel="noopener">Posições em aberto | B3</a>.</div>
+      <textarea id="pm-texto" placeholder="Cole aqui a tabela inteira, com o cabeçalho (Ticker, Vencimento, Strike, ... Coberto, Travado, Descob., Tit., Lanç.)" spellcheck="false"></textarea>
+      <div style="display:flex; gap:10px; align-items:center; margin-top:8px">
+        <button id="pm-analisar" class="botao">Analisar e salvar</button>
+        <span id="pm-status" class="nota"></span>
+      </div>
+    </div>
+    <div class="tiles" id="tiles-pm" style="margin-top:12px"></div>
+    <div class="grade" style="margin-top:12px" id="grade-pm"></div>
 
     <h2>Macro</h2>
     <div class="grade">
@@ -361,6 +384,94 @@ th { color: var(--ink-2); font-weight: 600; }
     }
   }
 
+  // ---------- posicao em aberto colada manualmente
+  function graficoBarras(id, strikes, call, put, ima) {
+    const el = document.getElementById(id);
+    if (!strikes.length) { el.innerHTML = '<div class="vazio">sem dados</div>'; return; }
+    const W = el.clientWidth || 600, H = 260, esq = 56, dir = 12, topo = 10, baixo = 34;
+    const max = Math.max(1, ...call, ...put);
+    const escY = v => (H - baixo) - (v / max) * (H - baixo - topo);
+    const passo = (W - esq - dir) / strikes.length;
+    const bw = Math.min(22, passo / 2 - 3);
+    const cs = cores();
+    const fmtM = v => v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "k" : String(Math.round(v));
+    let svg = `<svg class="bars-svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
+    [0.25, 0.5, 0.75, 1].forEach(f => {
+      const y = escY(max * f);
+      svg += `<line class="grid" x1="${esq}" x2="${W - dir}" y1="${y}" y2="${y}"/><text x="${esq - 6}" y="${y + 3}" text-anchor="end">${fmtM(max * f)}</text>`;
+    });
+    svg += `<line class="eixo" x1="${esq}" x2="${W - dir}" y1="${H - baixo}" y2="${H - baixo}"/>`;
+    strikes.forEach((k, i) => {
+      const cx = esq + i * passo + passo / 2;
+      const yc = escY(call[i]), yp = escY(put[i]);
+      svg += `<rect x="${cx - bw - 1}" y="${yc}" width="${bw}" height="${(H - baixo) - yc}" fill="${cs[0]}" rx="2"/>`;
+      svg += `<rect x="${cx + 1}" y="${yp}" width="${bw}" height="${(H - baixo) - yp}" fill="${cs[1]}" rx="2"/>`;
+      svg += `<text x="${cx}" y="${H - baixo + 16}" text-anchor="middle"${k === ima ? ' class="rotulo-ima"' : ""}>${fmt(k, 0)}</text>`;
+      if (k === ima) svg += `<text x="${cx}" y="${topo + 10}" text-anchor="middle" class="rotulo-ima">ímã</text>`;
+    });
+    svg += "</svg>";
+    el.innerHTML = svg;
+    el.insertAdjacentHTML("beforeend",
+      `<div class="u-legend" style="display:flex;gap:16px;margin-top:4px">
+        <span><i class="u-marker" style="display:inline-block;width:10px;height:10px;background:${cs[0]};border-radius:2px;margin-right:5px"></i>Call</span>
+        <span><i class="u-marker" style="display:inline-block;width:10px;height:10px;background:${cs[1]};border-radius:2px;margin-right:5px"></i>Put</span>
+      </div>`);
+  }
+
+  function renderPosicaoManual(d) {
+    if (!d || !d.resumo || !d.resumo.length) {
+      $("#tiles-pm").innerHTML = '<div class="vazio">nada colado ainda nesta sessão do banco — cole a tabela acima</div>';
+      $("#grade-pm").innerHTML = ""; $("#pm-sub").textContent = "";
+      return;
+    }
+    const quando = new Date(d.capturado_em).toLocaleString("pt-BR");
+    $("#pm-sub").textContent = `· última captura ${quando}`;
+    $("#tiles-pm").innerHTML = d.resumo.map(r => {
+      const vl = r.vencimento;
+      return `<div class="card tile"><div class="rot">Vencimento ${vl}</div>
+        <div class="val">strike ${r.strike_ima != null ? fmt(r.strike_ima, 0) : "–"}</div>
+        <div class="det">concentração ${r.concentracao_ima != null ? fmt(r.concentracao_ima, 1) + "×" : "–"} o 2º maior ·
+        ATM ${r.atm_iv != null ? fmt(r.atm_iv * 100, 1) + "%" : "–"} · RR25 ${r.rr25 != null ? sinal(r.rr25 * 100, 2) : "–"}<br>
+        suporte (put descoberta) ${r.suporte != null ? fmt(r.suporte, 0) : "–"} · resistência (call descoberta) ${r.resistencia != null ? fmt(r.resistencia, 0) : "–"}</div></div>`;
+    }).join("");
+    $("#grade-pm").innerHTML = d.resumo.map((r, i) =>
+      `<div class="card"><h3>Posição em aberto · ${r.vencimento}</h3><div class="unid">coberto + travado + descoberto por strike (contratos)</div><div class="graf" id="g-pm-${i}"></div></div>`
+    ).join("");
+    d.resumo.forEach((r, i) => {
+      const s = d.series.filter(x => x.vencimento === r.vencimento);
+      const strikes = [...new Set(s.map(x => x.strike))].sort((a, b) => a - b);
+      const soma = (k, t) => s.filter(x => x.strike === k && x.tipo === t)
+        .reduce((acc, x) => acc + (x.coberto || 0) + (x.travado || 0) + (x.descoberto || 0), 0);
+      graficoBarras(`g-pm-${i}`, strikes, strikes.map(k => soma(k, "C")), strikes.map(k => soma(k, "P")), r.strike_ima);
+    });
+  }
+
+  async function carregarPosicaoManual() {
+    try {
+      const r = await fetch("/api/opcoes-manual");
+      renderPosicaoManual(await r.json());
+    } catch (e) { /* silencioso: secao opcional */ }
+  }
+
+  $("#pm-analisar").onclick = async () => {
+    const texto = $("#pm-texto").value;
+    if (!texto.trim()) return;
+    const btn = $("#pm-analisar"), status = $("#pm-status");
+    btn.disabled = true; status.textContent = "analisando…"; status.className = "nota";
+    try {
+      const r = await fetch("/api/opcoes-manual", { method: "POST", body: texto });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.erro || r.status);
+      status.textContent = `${j.linhas} linhas salvas`;
+      $("#pm-texto").value = "";
+      await carregarPosicaoManual();
+    } catch (e) {
+      status.textContent = `Erro: ${e.message}`; status.className = "erro";
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
   // ---------- controles
   const salvo = (() => { try { return localStorage.getItem("janela"); } catch { return null; } })();
   if (salvo && document.querySelector(`#janelas [data-j="${salvo}"]`)) janela = salvo;
@@ -388,6 +499,7 @@ th { color: var(--ink-2); font-weight: 600; }
 
   carregar();
   agendar();
+  carregarPosicaoManual();
 })();
 </script>
 </body>
