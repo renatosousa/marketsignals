@@ -153,7 +153,7 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
     <h2>Posição em aberto (B3) <span class="sub" id="pm-sub"></span></h2>
     <div class="card">
       <h3>Colar tabela da corretora</h3>
-      <div class="unid">Cole a tabela de opções com Coberto/Travado/Descob./Tit./Lanç. (Ctrl+V) e clique em analisar. A B3 não oferece uma API confiável para isso, então a coleta é manual — ver <a href="https://www.b3.com.br/pt_br/market-data-e-indices/servicos-de-dados/market-data/consultas/mercado-a-vista/opcoes/posicoes-em-aberto/" target="_blank" rel="noopener">Posições em aberto | B3</a>.</div>
+      <div class="unid">Cole a tabela de opções com Coberto/Travado/Descob./Tit./Lanç. (Ctrl+V) e clique em analisar. Inclua a coluna <b>Vencimento</b> se a tela oferecer — sem ela, todas as linhas caem num grupo só e a comparação de estrutura a termo (skew entre vencimentos) fica indisponível. A B3 não oferece uma API confiável para isso, então a coleta é manual — ver <a href="https://www.b3.com.br/pt_br/market-data-e-indices/servicos-de-dados/market-data/consultas/mercado-a-vista/opcoes/posicoes-em-aberto/" target="_blank" rel="noopener">Posições em aberto | B3</a>.</div>
       <textarea id="pm-texto" placeholder="Cole aqui a tabela inteira, com o cabeçalho (Ticker, Vencimento, Strike, ... Coberto, Travado, Descob., Tit., Lanç.)" spellcheck="false"></textarea>
       <div style="display:flex; gap:10px; align-items:center; margin-top:8px">
         <button id="pm-analisar" class="botao">Analisar e salvar</button>

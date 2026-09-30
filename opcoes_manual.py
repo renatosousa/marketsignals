@@ -102,6 +102,8 @@ def parsear(texto, subjacente="BOVA11"):
         raise ValueError("nenhuma linha de dados reconhecida")
 
     df = pd.DataFrame(registros)
+    if "vencimento" not in df.columns:  # tela sem a coluna Vencimento: trata tudo como 1 serie so
+        df["vencimento"] = "não informado"
     df["subjacente"] = subjacente
     df["tipo"] = df["tipo"].str.upper().str[0].map({"C": "C", "P": "P"}).fillna(df.get("tipo"))
     if "vol_impl_pct" in df:
