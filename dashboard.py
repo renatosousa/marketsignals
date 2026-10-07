@@ -12,7 +12,7 @@ import math
 import sqlite3
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -287,7 +287,54 @@ def opcoes_manual_ultimo(db_path, subjacente="BOVA11"):
                                       (ts, subjacente))]
     finally:
         con.close()
-    return dict(capturado_em=ts, resumo=resumo, series=series)
+    return dict(capturado_em=ts, resumo=resumo, series=series, fonte="manual")
+
+
+def posicoes_b3_ultimo(db_path, subjacente="BOVA11", n_venc=4, faixa=0.25, dias=70):
+    """Ultima sessao baixada da B3 por posicoes_b3_csv.py, no mesmo formato de opcoes_manual_ultimo.
+    A B3 traz todas as series (~30 vencimentos): devolve os n_venc vencimentos com mais posicao em
+    aberto nos proximos `dias` dias e so strikes a +-faixa do spot."""
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10)
+    try:
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE name='b3_posicoes_resumo'").fetchone():
+            return None
+        r = con.execute("SELECT sessao, capturado_em, spot FROM b3_posicoes_resumo WHERE subjacente=? "
+                        "ORDER BY sessao DESC LIMIT 1", (subjacente,)).fetchone()
+        if not r:
+            return None
+        sessao, cap, spot = r
+        limite = (date.fromisoformat(sessao) + timedelta(days=dias)).isoformat()
+        resumo = [dict(vencimento=r[0], atm_iv=r[1], rr25=r[2], strike_ima=r[3], concentracao_ima=r[4],
+                       suporte=r[5], resistencia=r[6])
+                  for r in con.execute("SELECT vencimento, atm_iv, rr25, strike_ima, concentracao_ima, suporte, "
+                                       "resistencia FROM b3_posicoes_resumo WHERE sessao=? AND subjacente=? "
+                                       "AND vencimento>? AND vencimento<=? "
+                                       "ORDER BY coalesce(oi_call,0)+coalesce(oi_put,0) DESC LIMIT ?",
+                                       (sessao, subjacente, sessao, limite, n_venc))]
+        resumo.sort(key=lambda x: x["vencimento"])
+        vencs = [x["vencimento"] for x in resumo]
+        k_min, k_max = (spot * (1 - faixa), spot * (1 + faixa)) if spot else (0, 1e18)
+        series = [dict(vencimento=r[0], tipo=r[1], strike=r[2], coberto=r[3], travado=r[4], descoberto=r[5])
+                  for r in con.execute("SELECT vencimento, tipo, strike, coberto, travado, descoberto "
+                                       "FROM b3_posicoes_series WHERE sessao=? AND subjacente=? "
+                                       f"AND vencimento IN ({','.join('?' * len(vencs))}) AND strike BETWEEN ? AND ?",
+                                       (sessao, subjacente, *vencs, k_min, k_max))] if vencs else []
+    finally:
+        con.close()
+    return dict(capturado_em=cap, sessao=sessao, spot=spot, resumo=resumo, series=series, fonte="b3")
+
+
+def posicao_aberta(db_path, subjacente="BOVA11", fonte=None):
+    """O mais recente (por capturado_em) entre a colagem manual e o download da B3; fonte forca um dos dois."""
+    def seguro(f):
+        try:
+            return f(db_path, subjacente)
+        except sqlite3.OperationalError:  # tabela ainda nao criada
+            return None
+    manual = seguro(opcoes_manual_ultimo) if fonte in (None, "manual") else None
+    b3 = seguro(posicoes_b3_ultimo) if fonte in (None, "b3") else None
+    cands = [x for x in (manual, b3) if x and x.get("resumo")]
+    return max(cands, key=lambda x: x["capturado_em"]) if cands else (manual or b3)
 
 
 def main():
@@ -323,7 +370,10 @@ def main():
                                 "application/json")
             elif u.path == "/api/opcoes-manual":
                 try:
-                    r = opcoes_manual_ultimo(app.db)
+                    fonte = parse_qs(u.query).get("fonte", [None])[0]
+                    if fonte not in (None, "manual", "b3"):
+                        return self.enviar(400, b'{"erro":"fonte invalida (manual|b3)"}', "application/json")
+                    r = posicao_aberta(app.db, fonte=fonte)
                     self.enviar(200, json.dumps(json_limpo(r), ensure_ascii=False).encode(),
                                 "application/json; charset=utf-8")
                 except Exception as e:
