@@ -71,6 +71,9 @@ def parsear(texto, subjacente="BOVA11"):
     linhas = [l for l in texto.strip("\n").split("\n") if l.strip()]
     if not linhas:
         raise ValueError("texto vazio")
+    # a tela costuma colar um titulo ("Opcoes BOVA11 - CALLs e PUTs - ...") antes do cabecalho
+    i0 = next((i for i, l in enumerate(linhas) if "\t" in l and _norm(l.split("\t")[0]).startswith("ticker")), 0)
+    linhas = linhas[i0:]
     cab = linhas[0].split("\t")
     # theta aparece 2x (Theta ($) e Theta (%)): o 2o mapeamento de "theta" vira theta_pct
     campos, visto_theta = [], False
