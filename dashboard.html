@@ -153,7 +153,7 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
     <h2>Posição em aberto (B3) <span class="sub" id="pm-sub"></span></h2>
     <div class="card">
       <h3>Colar tabela da corretora</h3>
-      <div class="unid">Cole a tabela de opções com Coberto/Travado/Descob./Tit./Lanç. (Ctrl+V) e clique em analisar. Inclua a coluna <b>Vencimento</b> se a tela oferecer — sem ela, todas as linhas caem num grupo só e a comparação de estrutura a termo (skew entre vencimentos) fica indisponível. A B3 não oferece uma API confiável para isso, então a coleta é manual — ver <a href="https://www.b3.com.br/pt_br/market-data-e-indices/servicos-de-dados/market-data/consultas/mercado-a-vista/opcoes/posicoes-em-aberto/" target="_blank" rel="noopener">Posições em aberto | B3</a>.</div>
+      <div class="unid">Cole a tabela de opções com Coberto/Travado/Descob./Tit./Lanç. (Ctrl+V) e clique em analisar. Inclua a coluna <b>Vencimento</b> se a tela oferecer — sem ela, todas as linhas caem num grupo só e a comparação de estrutura a termo (skew entre vencimentos) fica indisponível. Sem colagem, o painel usa o download diário do BDI da B3 (<code>posicoes_b3_csv.py</code>, pregão anterior, vencimentos com mais posição nos próximos 70 dias); vale o mais recente dos dois. Referência: <a href="https://www.b3.com.br/pt_br/market-data-e-indices/servicos-de-dados/market-data/consultas/mercado-a-vista/opcoes/posicoes-em-aberto/" target="_blank" rel="noopener">Posições em aberto | B3</a>.</div>
       <textarea id="pm-texto" placeholder="Cole aqui a tabela inteira, com o cabeçalho (Ticker, Vencimento, Strike, ... Coberto, Travado, Descob., Tit., Lanç.)" spellcheck="false"></textarea>
       <div style="display:flex; gap:10px; align-items:center; margin-top:8px">
         <button id="pm-analisar" class="botao">Analisar e salvar</button>
@@ -420,12 +420,14 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
 
   function renderPosicaoManual(d) {
     if (!d || !d.resumo || !d.resumo.length) {
-      $("#tiles-pm").innerHTML = '<div class="vazio">nada colado ainda nesta sessão do banco — cole a tabela acima</div>';
+      $("#tiles-pm").innerHTML = '<div class="vazio">nada colado nem baixado da B3 ainda — cole a tabela acima ou rode posicoes_b3_csv.py</div>';
       $("#grade-pm").innerHTML = ""; $("#pm-sub").textContent = "";
       return;
     }
     const quando = new Date(d.capturado_em).toLocaleString("pt-BR");
-    $("#pm-sub").textContent = `· última captura ${quando}`;
+    $("#pm-sub").textContent = d.fonte === "b3"
+      ? `· B3 (BDI), pregão de ${d.sessao.split("-").reverse().join("/")} · baixado ${quando}`
+      : `· colagem manual · última captura ${quando}`;
     $("#tiles-pm").innerHTML = d.resumo.map(r => {
       const vl = r.vencimento;
       return `<div class="card tile"><div class="rot">Vencimento ${vl}</div>
