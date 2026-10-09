@@ -6,7 +6,7 @@ so quando a cotacao muda. Sem livro e sem copy_ticks (so symbol_info_tick, que n
 Tabela (ts_ms = hora do servidor MT5 em ms, mesma base dos outros coletores):
   macro_cotacoes  ts_ms, sessao, symbol, grupo, bid, ask, last, mid
 
-DI1: as cotacoes sao TAXAS (% a.a.), nao precos.
+DI1 e DAP: as cotacoes sao TAXAS (% a.a.; DAP = juro real sobre IPCA), nao precos.
 IVVB11 e o S&P 500 em reais; S&P em dolar ~ IVVB11 / WDO$.
 
 Uso: python coletor_macro.py [GRUPO] [SEGUNDOS] [--db dados/book.db] [--intervalo 1.0]
@@ -26,6 +26,10 @@ from relogio import Relogio
 ATIVOS = {
     "cambio": ["WDO$"],
     "juros": ["DI1F27", "DI1F28", "DI1F29", "DI1F31", "DI1F33", "DI1F35"],
+    # cupom de IPCA (DAP, taxa real % a.a., vence dia 15): os mais negociados dentro da faixa dos DI1 acima
+    # (BDI 08/10/2026: K27 96 negocios, Q28 129, K29 111, Q30 136, K31 85, K33 108, K35 149). Se a corretora
+    # nao tiver algum, o symbol_select falha e ele e ignorado com aviso.
+    "inflacao": ["DAPK27", "DAPQ28", "DAPK29", "DAPQ30", "DAPK31", "DAPK33", "DAPK35"],
     "exterior": ["IVVB11", "NASD11", "XINA11", "BEWZ39", "GOLD11", "BIT$"],
     "commodities": ["VALE3", "PETR4", "PRIO3", "SUZB3"],
     "domestico": ["ITUB4", "BBAS3", "SMAL11", "IND$"],

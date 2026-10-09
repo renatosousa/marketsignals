@@ -3,7 +3,9 @@
   python dashboard.py [--db dados/book.db] [--porta 8050]
   abrir http://127.0.0.1:8050
 
-GET /api/dados?janela=<segundos|pregao>  -> JSON com status das coletas, WIN/BOVA11, opcoes e macro.
+GET /api/dados?janela=<segundos|pregao>  -> JSON com status das coletas, WIN/BOVA11, opcoes e macro
+                                           (inclui a inflacao implicita intradiaria DI x DAP).
+GET /api/inflacao                         -> curva de inflacao implicita ANBIMA (coletor_anbima.py) e NTN-B.
 Todos os ts sao hora do servidor MT5 (Brasilia) codificada como epoch "UTC", como no banco.
 """
 import argparse
@@ -20,6 +22,7 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 
 import banco
+import curvas
 import opcoes_manual as om
 
 AQUI = Path(__file__).parent
@@ -34,6 +37,9 @@ MACRO_GRAFICOS = {
     "domestico": ["ITUB4", "BBAS3", "SMAL11", "GOLD11"],
 }
 DI_VERTICES = ["DI1F27", "DI1F28", "DI1F29", "DI1F31", "DI1F33", "DI1F35"]
+# inflacao implicita intradiaria: DAP (coletor_macro, grupo "inflacao") contra o DI1 interpolado no vencimento dele
+DAP_SYMBOLS = ["DAPK27", "DAPQ28", "DAPK29", "DAPQ30", "DAPK31", "DAPK33", "DAPK35"]
+BREAKEVEN_DAP = ["DAPK29", "DAPK33"]
 CORREL = ["WDO$", "DI1F27", "DI1F29", "DI1F33", "IVVB11", "NASD11", "BEWZ39", "XINA11",
           "VALE3", "PETR4", "PRIO3", "ITUB4", "BBAS3", "SMAL11", "GOLD11", "BIT$"]
 
@@ -160,7 +166,7 @@ def dados(con, janela):
         smile[v] = sorted(pts.items())
 
     # ---------------- macro
-    todos = sorted({s for l in MACRO_GRAFICOS.values() for s in l} | set(DI_VERTICES) | set(CORREL))
+    todos = sorted({s for l in MACRO_GRAFICOS.values() for s in l} | set(DI_VERTICES) | set(CORREL) | set(BREAKEVEN_DAP))
     marcadores = ",".join("?" * len(todos))
     semente = {s: m for s, m, _ in q(f"SELECT symbol, mid, max(ts_ms) FROM macro_cotacoes WHERE symbol IN "
                                      f"({marcadores}) AND ts_ms < ? AND ts_ms > ? GROUP BY symbol",
@@ -203,6 +209,8 @@ def dados(con, janela):
                 if ok2.sum() >= 10 and np.std(rx[:-1][ok2]) > 0 else None)
         correl.append(dict(symbol=s, corr=limpo(cont), lead=limpo(lead), n=int(ok.sum())))
 
+    be = breakeven_intradia(con, t1, macro_niv, g.n)
+
     return dict(
         agora=agora / 1000, t0=t0 / 1000, t1=t1 / 1000, bucket_s=b / 1000, tempos=g.tempos(),
         status=status, db_mb=db_mb, regime=regime(con, t1),
@@ -210,9 +218,93 @@ def dados(con, janela):
         opcoes=dict(vencs=vencs, atm=atm, rr25=rr, fluxo_call=list(np.cumsum(fc)), fluxo_put=list(np.cumsum(fp)),
                     tiles=tiles, smile=smile),
         macro=dict(graficos=graficos, di=dict(vertices=DI_VERTICES, inicio=di_ini, fim=di_fim),
-                   inclinacao=incl, correl=correl,
+                   inclinacao=incl, correl=correl, breakeven=be,
                    ultimo={s: next((x for x in reversed(macro_niv[s]) if x is not None), None) for s in todos}),
     )
+
+
+def breakeven_intradia(con, t1, macro_niv, n):
+    """Inflacao implicita DI x DAP por balde da janela, para cada DAP de BREAKEVEN_DAP, mais a variacao
+    no dia (contra o primeiro valor desde as 9h) e o fechamento ANBIMA anterior no mesmo prazo."""
+    ref = datetime.fromtimestamp(t1 / 1000, tz=timezone.utc).date()
+    t_dia = int(datetime(ref.year, ref.month, ref.day, INICIO_PREGAO_H, tzinfo=timezone.utc).timestamp() * 1000)
+    abertura = {s: m for s, m, _ in con.execute(
+        f"SELECT symbol, mid, min(ts_ms) FROM macro_cotacoes WHERE symbol IN ({','.join('?' * (len(DI_VERTICES) + len(BREAKEVEN_DAP)))}) "
+        "AND ts_ms BETWEEN ? AND ? AND mid IS NOT NULL GROUP BY symbol", (*DI_VERTICES, *BREAKEVEN_DAP, t_dia, t1))}
+    try:
+        anb = con.execute("SELECT data FROM anbima_ettj WHERE data < ? ORDER BY data DESC LIMIT 1",
+                          (ref.isoformat(),)).fetchone()
+        curva_anb = con.execute("SELECT vertice_du, ettj_pre, ettj_ipca FROM anbima_ettj WHERE data=?",
+                                (anb[0],)).fetchall() if anb else []
+    except sqlite3.OperationalError:
+        anb, curva_anb = None, []
+    out = {}
+    for dap in BREAKEVEN_DAP:
+        serie = []
+        for i in range(n):
+            taxas = {s: macro_niv[s][i] for s in DI_VERTICES}
+            serie.append(curvas.breakeven_dap(ref, taxas, dap, macro_niv[dap][i])[0])
+        agora, di_agora, du = curvas.breakeven_dap(ref, {s: macro_niv[s][-1] for s in DI_VERTICES}, dap,
+                                                   macro_niv[dap][-1])
+        abre = curvas.breakeven_dap(ref, {s: abertura.get(s) for s in DI_VERTICES}, dap, abertura.get(dap))[0]
+        anb_be = None
+        if curva_anb and du:
+            pre = curvas.interp_flat_forward([r[0] for r in curva_anb if r[1]], [r[1] for r in curva_anb if r[1]], du)
+            ipca = curvas.interp_flat_forward([r[0] for r in curva_anb if r[2]], [r[2] for r in curva_anb if r[2]], du)
+            anb_be = curvas.breakeven(pre, ipca)
+        ini = next((x for x in serie if x is not None), None)
+        out[dap] = dict(serie=serie, vencimento=str(curvas.vencimento(dap)), du=du, dap=macro_niv[dap][-1],
+                        di=di_agora, agora=agora, inicio_janela=ini, abertura_dia=abre,
+                        var_dia=(agora - abre) * 100 if agora is not None and abre is not None else None,
+                        anbima=anb_be, anbima_data=anb[0] if anb else None)
+    return out
+
+
+def inflacao_anbima(db_path):
+    """Curva de inflacao implicita da ANBIMA (coletor_anbima.py): ultimo dia, ~1 semana e ~1 mes antes;
+    destaques em 1/2/5 anos e as NTN-B do ultimo dia (taxa indicativa e variacao no dia)."""
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10)
+    try:
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE name='anbima_ettj'").fetchone():
+            return None
+        datas = [r[0] for r in con.execute("SELECT DISTINCT data FROM anbima_ettj ORDER BY data")]
+        if not datas:
+            return None
+        d0 = date.fromisoformat(datas[-1])
+        antes = lambda dias: max((x for x in datas if x <= (d0 - timedelta(days=dias)).isoformat()), default=None)
+        refs = [("ultimo", datas[-1]), ("anterior", datas[-2] if len(datas) > 1 else None),
+                ("semana", antes(7)), ("mes", antes(28) or (datas[0] if datas[0] != datas[-1] else None))]
+        curvas_d = {}
+        for nome, d in refs:
+            if d:
+                curvas_d[nome] = dict(data=d, pontos={du: ii for du, ii in con.execute(
+                    "SELECT vertice_du, inflacao_implicita FROM anbima_ettj WHERE data=? "
+                    "AND inflacao_implicita IS NOT NULL", (d,))})
+        vertices = sorted(curvas_d["ultimo"]["pontos"])
+        series = {k: dict(data=v["data"], valores=[v["pontos"].get(du) for du in vertices]) for k, v in curvas_d.items()}
+        destaques = []
+        for du, rot in ((252, "1 ano"), (504, "2 anos"), (1260, "5 anos")):
+            val = lambda k: curvas_d.get(k, {}).get("pontos", {}).get(du)
+            v = val("ultimo")
+            destaques.append(dict(prazo=rot, du=du, valor=v,
+                                  var_dia=(v - val("anterior")) * 100 if v is not None and val("anterior") is not None else None,
+                                  var_semana=(v - val("semana")) * 100 if v is not None and val("semana") is not None else None))
+        ntnb = []
+        try:
+            dt = con.execute("SELECT max(data) FROM anbima_titulos").fetchone()[0]
+            dt_ant = con.execute("SELECT max(data) FROM anbima_titulos WHERE data < ?", (dt,)).fetchone()[0]
+            ant = dict(con.execute("SELECT vencimento, tx_indicativa FROM anbima_titulos WHERE titulo='NTN-B' AND data=?",
+                                   (dt_ant,)).fetchall())
+            for venc, tx in con.execute("SELECT vencimento, tx_indicativa FROM anbima_titulos WHERE titulo='NTN-B' "
+                                        "AND data=? ORDER BY vencimento", (dt,)):
+                ntnb.append(dict(vencimento=venc, taxa=tx,
+                                 var_dia=(tx - ant[venc]) * 100 if tx is not None and ant.get(venc) is not None else None))
+        except sqlite3.OperationalError:
+            dt = None
+        return dict(data=datas[-1], vertices_du=vertices, anos=[round(du / 252, 2) for du in vertices],
+                    series=series, destaques=destaques, ntnb=ntnb, ntnb_data=dt)
+    finally:
+        con.close()
 
 
 def regime(con, t1):
@@ -366,6 +458,13 @@ def main():
                 try:
                     self.enviar(200, app.obter(janela), "application/json; charset=utf-8")
                 except Exception as e:  # mostra o erro na pagina em vez de derrubar o servidor
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
+            elif u.path == "/api/inflacao":
+                try:
+                    self.enviar(200, json.dumps(json_limpo(inflacao_anbima(app.db)), ensure_ascii=False).encode(),
+                                "application/json; charset=utf-8")
+                except Exception as e:
                     self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
                                 "application/json")
             elif u.path == "/api/opcoes-manual":

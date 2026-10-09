@@ -173,6 +173,16 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
       <div class="card"><h3>Correlação com o WIN</h3><div class="unid">retornos de 1 min na janela (DI: variação da taxa)</div><div id="correl"></div>
         <p class="nota">“Antecipa” = correlação do ativo no minuto anterior com o WIN no minuto seguinte. Com menos de ~60 minutos na janela os valores são ruído.</p></div>
     </div>
+
+    <h2>Inflação implícita <span class="sub" id="inf-sub"></span></h2>
+    <div class="tiles" id="tiles-be"></div>
+    <div class="tiles" id="tiles-inf" style="margin-top:12px"></div>
+    <div class="grade" style="margin-top:12px">
+      <div class="card"><h3>Intradiária · DI × DAP</h3><div class="unid">(1 + DI) / (1 + DAP) − 1, % a.a., DI1 interpolado (flat-forward) no vencimento do DAP</div><div class="graf" id="g-inf-intra"></div></div>
+      <div class="card"><h3>Curva ANBIMA (fechamento)</h3><div class="unid">inflação implícita % a.a. por prazo em anos (ETTJ pré × IPCA)</div><div class="graf" id="g-inf-curva"></div></div>
+      <div class="card"><h3>NTN-B · taxa indicativa ANBIMA</h3><div class="unid" id="ntnb-sub">% a.a. e variação no dia</div><div id="ntnb"></div></div>
+    </div>
+    <p class="nota">Inflação implícita = diferença entre o juro pré e o juro real; inclui prêmio de risco de inflação (e de liquidez), então costuma ficar acima da expectativa do Focus. A intradiária usa futuros (DI1 e DAP na MT5) e a curva usa títulos (ANBIMA): níveis diferem alguns centésimos a ~0,2 p.p. nos prazos longos; compare variações, não níveis.</p>
   </div>
 </main>
 
@@ -366,6 +376,7 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
       [{ nome: "início da janela", v: m.di.inicio }, { nome: "agora", v: m.di.fim }],
       { tempo: false, xCat: m.di.vertices.map(s => s.replace("DI1", "")), dec: 3, pontos: true, nomeX: "vértice" });
     grafico("g-incl", t, [{ nome: "F33 − F27", v: m.inclinacao }], { dec: 1 });
+    inflacaoIntradia(t, m.breakeven || {});
     correl(m.correl);
   }
 
@@ -382,6 +393,48 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
     } finally {
       $("#conteudo").classList.remove("carregando");
     }
+  }
+
+  // ---------- inflacao implicita
+  const mesAno = v => { const [a, m] = v.split("-"); return ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"][+m - 1] + "/" + a.slice(2); };
+  const dataBR = v => v ? v.split("-").reverse().join("/") : "–";
+  function inflacaoIntradia(t, be) {
+    const syms = Object.keys(be);
+    $("#tiles-be").innerHTML = syms.length ? syms.map((s, i) => {
+      const b = be[s];
+      return `<div class="card tile"><div class="rot"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--s${i + 1});margin-right:6px"></span>${s} × DI · ${mesAno(b.vencimento)} (${fmt(b.du / 252, 1)} anos)</div>
+        <div class="val">${b.agora != null ? fmt(b.agora, 2) + "%" : "–"}</div>
+        <div class="det">${sinal(b.var_dia, 1)} bp no dia · DAP ${fmt(b.dap, 3)}% · DI ${fmt(b.di, 3)}%<br>ANBIMA ${dataBR(b.anbima_data)}: ${b.anbima != null ? fmt(b.anbima, 2) + "%" : "–"}</div></div>`;
+    }).join("") : "";
+    grafico("g-inf-intra", t, syms.map((s, i) => ({ nome: s, v: be[s].serie, slot: i })), { dec: 3, fmtY: v => fmt(v, 3) + "%" });
+  }
+
+  let ultimoInf = null;
+  function renderInflacao(d) {
+    ultimoInf = d;
+    if (!d || !d.series) {
+      $("#tiles-inf").innerHTML = '<div class="vazio">sem curva ANBIMA no banco — rode coletor_anbima.py</div>';
+      return;
+    }
+    $("#inf-sub").textContent = `· ANBIMA de ${dataBR(d.data)}`;
+    $("#tiles-inf").innerHTML = d.destaques.map(x => `<div class="card tile"><div class="rot">ANBIMA · ${x.prazo}</div>
+      <div class="val">${x.valor != null ? fmt(x.valor, 2) + "%" : "–"}</div>
+      <div class="det">${sinal(x.var_dia, 1)} bp no dia · ${sinal(x.var_semana, 1)} bp na semana</div></div>`).join("");
+    const rot = { ultimo: "último", semana: "1 semana", mes: "1 mês" };
+    grafico("g-inf-curva", d.anos, ["ultimo", "semana", "mes"].filter(k => d.series[k]).map((k, i) =>
+      ({ nome: `${rot[k]} (${dataBR(d.series[k].data).slice(0, 5)})`, v: d.series[k].valores, slot: i })),
+      { tempo: false, dec: 2, pontos: true, nomeX: "anos" });
+    $("#ntnb-sub").textContent = `% a.a. e variação no dia · ${dataBR(d.ntnb_data)}`;
+    $("#ntnb").innerHTML = d.ntnb.length ? `<div class="tab-wrap"><table><thead><tr><th>vencimento</th><th>taxa</th><th>dia (bp)</th></tr></thead><tbody>` +
+      d.ntnb.map(x => `<tr><td>${dataBR(x.vencimento)}</td><td>${fmt(x.taxa, 4)}</td><td>${sinal(x.var_dia, 1)}</td></tr>`).join("") +
+      "</tbody></table></div>" : '<div class="vazio">sem NTN-B</div>';
+  }
+
+  async function carregarInflacao() {
+    try {
+      const r = await fetch("/api/inflacao");
+      renderInflacao(await r.json());
+    } catch (e) { /* silencioso: secao opcional */ }
   }
 
   // ---------- posicao em aberto colada manualmente
@@ -497,11 +550,14 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
     Object.values(graficos).forEach(g => g.u.destroy());
     Object.keys(graficos).forEach(k => delete graficos[k]);
     if (ultimo) render(ultimo);
+    if (ultimoInf) renderInflacao(ultimoInf);
   });
 
   carregar();
   agendar();
   carregarPosicaoManual();
+  carregarInflacao();
+  setInterval(carregarInflacao, 600000);  // curva diaria: basta recarregar a cada 10 min
 })();
 </script>
 </body>
