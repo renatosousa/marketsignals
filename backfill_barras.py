@@ -46,9 +46,10 @@ def gravar(db, linhas):
 
 def backfill_mt5(db, inicio, fim):
     import MetaTrader5 as mt5
+    from coletor_agressao import CESTA  # acoes da cesta de agressao: o volume real por minuto escala a captura
     if not mt5.initialize():
         raise SystemExit(f"MT5: {mt5.last_error()}")
-    for s in MT5_ATIVOS:
+    for s in MT5_ATIVOS + CESTA:
         mt5.symbol_select(s, True)
         total, a = 0, inicio
         while a < fim:

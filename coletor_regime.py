@@ -133,6 +133,18 @@ def main():
     ap.add_argument("--sem-treino", action="store_true")
     args = ap.parse_args()
 
+    try:  # fluxo de investidores da B3 (D+2): a serie so existe porque a gente a acumula todo dia
+        import fluxo_estrangeiro as fe
+        n_pub, n_dia = fe.atualizar(args.db)
+        print(f"fluxo de investidores (B3): {n_pub} publicacoes, {n_dia} linhas diarias", flush=True)
+    except Exception as e:
+        print(f"aviso: fluxo de investidores nao atualizado ({e.__class__.__name__}: {e})", flush=True)
+    try:  # variaveis diarias para estimar o fluxo (usa a agressao coletada e as barras de 1 min)
+        import features_fluxo as ff
+        print(f"features de fluxo: {ff.construir(args.db)} dia(s)", flush=True)
+    except Exception as e:
+        print(f"aviso: features de fluxo nao atualizadas ({e.__class__.__name__}: {e})", flush=True)
+
     modelo = mr.carregar_modelo()
     hoje = datetime.now().strftime("%Y-%m-%d")
     if not args.sem_treino and (modelo is None or not modelo["treinado_em"].startswith(hoje)):
