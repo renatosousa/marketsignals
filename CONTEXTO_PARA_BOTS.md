@@ -43,6 +43,11 @@ Lacunas conhecidas (cite-as quando afetarem a resposta):
 - Agressão do BOVA11 é estimada pelo tick ao vivo e pode subestimar o volume. O MT5 não informa nº de ordens.
 - Fluxo de opções é um proxy (detecta mudança de último preço); não há volume real por série no MT5.
 - Posição em aberto (coberto/travado/descoberto) só existe nas grades que eu colo manualmente.
+- **Notícias:** latência esperada de 1 a 5 minutos entre publicação e coleta (RSS + intervalo de consulta). Fins de semana
+  não são coletados no momento; na segunda às 06:00 a passada de partida grava os itens ainda presentes nos feeds com
+  `ts_coleta_ms` = segunda 06:00. A classificação de sentimento (FinBERT-PT-BR/EN, CPU) pode atrasar até 60s; o `ts_coleta_ms`
+  é a hora de **disponibilidade** (nunca `ts_pub_ms`, para evitar lookahead). Agregados de 1 min e 5 min são idempotentes.
+  O GDELT atualiza a cada 15 min com 15 a 30 min de atraso; serve só para contexto lento.
 
 Fluxo estrangeiro (B3): a série oficial é do mercado de AÇÕES (à vista, termo, opções, blocos), não de futuros;
 sai com 2 pregões de atraso e só ~21 publicações ficam disponíveis, por isso acumulamos todo dia. O MT5 não
@@ -86,6 +91,9 @@ Se o bot rodar na mesma máquina, ele pode ler o dashboard em JSON: `http://127.
 | `fluxo_investidores_dia.csv` | Fluxo oficial da B3 por tipo de investidor, por dia de referência (D+2) | `data_ref, tipo, compras_mil, vendas_mil, saldo_mil` (R$ mil; `Investidor Estrangeiro` é o foco) |
 | `agressao_1min.csv` | Agressão por minuto de 12 ações líquidas + WDO | `symbol, n, vol_compra, vol_venda, vol_neutro, fin_compra, fin_venda, maior_lote, preco` |
 | `features_fluxo_dia.csv` | Variáveis diárias para estimar o fluxo estrangeiro | `cesta_fin_liq_esc_mi, cesta_liq_esc_pct, captura_vol, wdo_liq_pct, win_ret_pct, ...` |
+| `noticias.csv` | Últimas 500 manchetes (originais, sem duplicatas) com sentimento | `hora, fonte, titulo, url, sentimento, relevancia, tema` |
+| `noticias_5min.csv` | Agregados de notícias por janela de 5 min | `hora, escopo, modelo, n, n_relevantes, sent_medio, sent_min, frac_neg, n_60, sent_60, z_volume, pico, evento` |
+| `calendario_macro.csv` | Eventos agendados (Copom, FOMC, IPCA, etc.) | `hora, tipo, pais, descricao, origem` |
 | `posicao_aberta_series.csv` | Grades coladas (por série) | `coberto, travado, descoberto, titulares, lancadores, vol_impl_pct, delta, gamma...` |
 | `posicao_aberta_resumo.csv` | Resumo por vencimento | `atm_iv, rr25, strike_ima, concentracao_ima, suporte, resistencia` |
 
@@ -133,6 +141,11 @@ Todas as colunas `ts_ms` são em milissegundos e guardam o **relógio de Brasíl
 | `fluxo_acumulado` / `fluxo_diario` | ~22 / ~100 | 08/09 em diante | Publicações cruas da B3 (acumulado do mês, por tipo de investidor) e o fluxo diário derivado pela diferença |
 | `agressao_1min` | cresce ~5 mil por pregão | 08/10 em diante | Agressão por minuto de 12 ações + WDO (variáveis para estimar o fluxo estrangeiro) |
 | `features_fluxo_dia` | 1 por pregão | 08/10 em diante | Variáveis diárias derivadas da agressão e das barras |
+| `noticias` | cresce ~300 por dia | conforme coleta | Manchetes de RSS BR, BCB, Fed, Finnhub: título, url, ts_coleta_ms (disponibilidade), ts_pub_ms, hash_titulo, dup_de |
+| `noticias_score` | 1+ por notícia original | conforme coleta | Sentimento FinBERT-PT-BR/EN (p_pos, p_neg, p_neu, sentimento = p_pos - p_neg), relevância, tema, Jev opcional |
+| `noticias_1min` / `noticias_5min` | 1 por minuto/escopo | conforme coleta | Agregados: n, n_relevantes, sent_medio, frac_neg, pico (z_volume >= 3), evento (janela de calendario_macro) |
+| `calendario_macro` | eventos agendados | conforme coleta | Copom, FOMC, IPCA, etc.: ts_ms, tipo, pais, origem (manual via CSV ou feed detectado) |
+| `gdelt_timeline` | 3 consultas × passos de 15 min | conforme coleta | Volume e tom do GDELT (br_juros, br_fiscal, us_fed) |
 | `opcoes_manual_series` / `_resumo` | 148 / 7 | grades de 28/09, 29/09 e 06/10 | Grades coladas à mão, com posição em aberto por série |
 
 Para consultar sem atrapalhar a coleta, abra sempre em modo leitura:

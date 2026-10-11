@@ -3,3 +3,8 @@ pandas
 ib_async
 numpy
 requests
+feedparser
+transformers
+huggingface_hub
+torch
+# typesafe-sdk  # opcional, so para --jev (requer Python >= 3.10; US$ 0,05/dia)

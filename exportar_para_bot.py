@@ -86,6 +86,22 @@ def main():
     if existe("features_fluxo_dia"):
         salvar("features_fluxo_dia.csv", q("SELECT * FROM features_fluxo_dia ORDER BY data"))
 
+    # noticias: manchetes com sentimento (ultimas N), agregados de 5 min e calendario macro
+    if existe("noticias"):
+        n = q("""SELECT n.ts_coleta_ms, n.fonte, n.titulo, n.url, s.sentimento, s.relevancia, s.tema
+                 FROM noticias n
+                 LEFT JOIN noticias_score s ON n.id = s.id AND s.modelo = 'finbert'
+                 WHERE n.ts_coleta_ms >= ? AND n.dup_de IS NULL
+                 ORDER BY n.ts_coleta_ms DESC LIMIT 500""", a)
+        salvar("noticias.csv", hora(n))
+    if existe("noticias_5min"):
+        n5 = q("SELECT * FROM noticias_5min WHERE ts_ms >= ? ORDER BY ts_ms, escopo, modelo", a)
+        salvar("noticias_5min.csv", hora(n5))
+    if existe("calendario_macro"):
+        cal = q("SELECT * FROM calendario_macro ORDER BY ts_ms")
+        salvar("calendario_macro.csv", hora(cal))
+
+
     # posicao em aberto colada manualmente (coberto/travado/descoberto/titulares/lancadores)
     salvar("posicao_aberta_series.csv", q("SELECT * FROM opcoes_manual_series ORDER BY capturado_em, vencimento, strike"))
     salvar("posicao_aberta_resumo.csv", q("SELECT * FROM opcoes_manual_resumo ORDER BY capturado_em, vencimento"))
