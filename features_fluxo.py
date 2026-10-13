@@ -17,7 +17,7 @@ Variaveis:
   win_vol_rel              volume do WIN no dia / mediana dos 20 pregoes anteriores
   captura_vol              volume capturado pelo coletor / volume real das barras de 1 min (qualidade; ~0,5)
   cesta_fin_liq_esc_mi     liquido da cesta CORRIGIDO pelo volume real: em cada minuto, (compra-venda)/total
-                           capturado x volume da barra x preco (usa so a proporcao amostrada, nao o nivel)
+                           capturado x volume da barra (no maximo 4x o capturado) x preco
   cesta_liq_esc_pct        liquido corrigido / volume financeiro real da cesta (%)
 
 Uso: python features_fluxo.py [--db dados/book.db] [--data AAAA-MM-DD]   (sem --data: todos os dias com coleta)
@@ -45,6 +45,7 @@ COLUNAS = ["data", "cobertura_acoes", "cesta_fin_bruto_mi", "cesta_fin_liq_mi", 
            "wdo_liq_contratos", "wdo_liq_pct", "wdo_ret_pct", "win_ret_pct", "win_amp_pct", "di29_bps", "win_vol_rel",
            "captura_vol", "cesta_fin_liq_esc_mi", "cesta_liq_esc_pct"]
 MIN_ACOES = 8
+ESCALA_MAX = 4.0  # no maximo 4x o volume capturado (captura minima de 25% no minuto)
 MINUTOS_ESPERADOS = 475  # 10:00 a 17:55
 
 
@@ -80,7 +81,10 @@ def construir_dia(con, data, barras):
     m = m[(m.tot > 0) & (m.vol_barra > 0)]
     if len(m):
         share = (m.vol_compra - m.vol_venda) / m.tot
-        esc = float((share * m.vol_barra * m.preco).sum() / 1e6)
+        # fator de escala limitado: em minutos de leilao/varredura o coletor captura ~0-5% do volume e a proporcao
+        # de poucos negocios, multiplicada pela barra inteira, dominava o dia (08/10: +R$ 1,4 bi so de 2 minutos)
+        vol_esc = np.minimum(m.vol_barra, m.tot * ESCALA_MAX)
+        esc = float((share * vol_esc * m.preco).sum() / 1e6)
         real = float((m.vol_barra * m.preco).sum() / 1e6)
         r.update(captura_vol=float(m.tot.sum() / m.vol_barra.sum()), cesta_fin_liq_esc_mi=esc,
                  cesta_liq_esc_pct=esc / real * 100 if real else np.nan)
