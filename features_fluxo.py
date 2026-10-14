@@ -78,7 +78,9 @@ def construir_dia(con, data, barras):
                       con, params=(h("09:00"), h("18:30")))
     m = acoes.merge(bar, on=["symbol", "ts_ms"], how="inner")
     m["tot"] = m.vol_compra + m.vol_venda + m.vol_neutro
-    m = m[(m.tot > 0) & (m.vol_barra > 0)]
+    # so o pregao continuo (ate 17:00): no leilao de fechamento a barra traz volumes enormes e o coletor
+    # captura ~5-20%, e poucos negocios decidiam o dia (09/10: +R$ 616 mi so depois das 17:00)
+    m = m[(m.tot > 0) & (m.vol_barra > 0) & (m.ts_ms < h("17:00"))]
     if len(m):
         share = (m.vol_compra - m.vol_venda) / m.tot
         # fator de escala limitado: em minutos de leilao/varredura o coletor captura ~0-5% do volume e a proporcao

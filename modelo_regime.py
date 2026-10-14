@@ -36,6 +36,7 @@ def atualizar_barras(db_path, dias=10):
     fim = datetime.utcnow().replace(second=0, microsecond=0)
     ini = fim - timedelta(days=dias)
     try:
+        bb.conferir_rolagem(db)  # vencimento do WIN/WDO: o MT5 reescreve o historico na escala do contrato novo
         bb.backfill_mt5(db, ini, fim)
     except BaseException as e:  # MT5 fora: treina com o que ja existe
         print(f"aviso: barras do MT5 nao atualizadas ({e})", flush=True)
