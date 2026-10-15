@@ -43,6 +43,19 @@ import pandas as pd
 AQUI = Path(__file__).parent
 APELIDOS = {"WIN": "WIN$", "WDO": "WDO$", "IND": "IND$", "DOL": "DOL$"}  # continuos da corretora (ver backfill_barras)
 
+# presets por simbolo canonico (afinados em dados reais). Precedencia:
+# defaults da ConfigWyckoff < preset do ativo < flags CLI explicitas.
+PRESETS = {
+    "WIN$": dict(
+        pivo=5,
+        sos_vol=1.6,
+        sos_atr=0.5,
+        largura_max_atr=10.0,
+        pivos_janela=30,
+        passo_preco=50.0,
+    ),
+}
+
 
 @dataclass
 class ConfigWyckoff:
@@ -93,6 +106,23 @@ class ConfigWyckoff:
 
 def simbolo(ativo):
     return APELIDOS.get(ativo.upper(), ativo.upper())
+
+
+def config_com_preset(ativo_ou_sym, overrides=None):
+    """Monta ConfigWyckoff: defaults < preset do ativo < overrides (so chaves com valor nao-None).
+
+    Retorna (cfg, nome_preset). nome_preset e o simbolo do preset aplicado, ou None.
+    """
+    sym = simbolo(ativo_ou_sym)
+    preset = PRESETS.get(sym, {})
+    nome = sym if preset else None
+    vals = {f.name: f.default for f in fields(ConfigWyckoff)}
+    vals.update(preset)
+    if overrides:
+        for k, v in overrides.items():
+            if v is not None and k in vals:
+                vals[k] = v
+    return ConfigWyckoff(**vals), nome
 
 
 def sessao_padrao(sym):
@@ -531,6 +561,8 @@ def resumo_texto(res, ativo, tf):
 def painel(db_path, ativo="WIN", tf="60min", dias=120, cfg=None):
     """Resumo para o dashboard (GET /api/wyckoff): estado atual, ultimos eventos e fases. Somente leitura."""
     sym = simbolo(ativo)
+    if cfg is None:
+        cfg, _ = config_com_preset(sym)
     fim = pd.Timestamp.now().normalize()
     m1 = carregar_1m(db_path, sym, (fim - pd.Timedelta(days=dias)).date().isoformat())
     res = analisar(m1, tf, cfg, sessao_padrao(sym))
@@ -560,10 +592,11 @@ def main(argv=None):
     ap.add_argument("--db", default=str(AQUI / "dados" / "book.db"))
     ap.add_argument("--saida", default=str(AQUI / "dados" / "wyckoff"))
     ap.add_argument("--sessao", help="HH:MM-HH:MM (padrao: 09:00-18:25 futuros, 10:00-17:00 acoes)")
-    for f in fields(ConfigWyckoff):  # todo parametro da config vira --nome
-        ap.add_argument("--" + f.name.replace("_", "-"), type=type(f.default), default=f.default)
+    for f in fields(ConfigWyckoff):  # todo parametro da config vira --nome (default=None: so override se passado)
+        ap.add_argument("--" + f.name.replace("_", "-"), type=type(f.default), default=None)
     a = ap.parse_args(argv)
-    cfg = ConfigWyckoff(**{f.name: getattr(a, f.name) for f in fields(ConfigWyckoff)})
+    overrides = {f.name: getattr(a, f.name) for f in fields(ConfigWyckoff)}
+    cfg, preset_nome = config_com_preset(a.ativo, overrides)
     sym = simbolo(a.ativo)
     sessao = tuple(a.sessao.split("-")) if a.sessao else sessao_padrao(sym)
     m1 = carregar_1m(a.db, sym, a.inicio, a.fim)
@@ -576,7 +609,11 @@ def main(argv=None):
     for k in ("barras", "eventos", "fases", "perfil"):
         res[k].to_csv(saida / f"{base}_{k}.csv", index=(k == "barras"))
     print(resumo_texto(res, sym, a.tf))
-    print(f"\nconfig: {asdict(cfg)}")
+    if preset_nome:
+        print(f"\npreset aplicado: {preset_nome} {PRESETS[preset_nome]}")
+    else:
+        print("\npreset aplicado: nenhum")
+    print(f"config: {asdict(cfg)}")
     print(f"CSVs em {saida / (base + '_*.csv')}")
 
 

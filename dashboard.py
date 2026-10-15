@@ -475,7 +475,9 @@ def main():
                 if ativo.upper() not in ("WIN", "WDO", "WIN$", "WDO$", "BOVA11") or tf not in ("15min", "30min", "60min", "D"):
                     return self.enviar(400, b'{"erro":"ativo ou tf invalido"}', "application/json")
                 try:
-                    r = wyckoff.painel(app.db, ativo, tf)
+                    # mesmo preset do CLI (WIN$ etc.): defaults < preset do ativo
+                    cfg, _ = wyckoff.config_com_preset(ativo)
+                    r = wyckoff.painel(app.db, ativo, tf, cfg=cfg)
                     self.enviar(200, json.dumps(json_limpo(r), ensure_ascii=False).encode(),
                                 "application/json; charset=utf-8")
                 except Exception as e:
