@@ -155,5 +155,38 @@ class TestCenarios(unittest.TestCase):
                                               ff.iloc[:len(fechados)].reset_index(drop=True), check_dtype=False)
 
 
+class TestPreset(unittest.TestCase):
+    """Precedencia: defaults ConfigWyckoff < preset do ativo < overrides explicitos (None nao sobrescreve)."""
+
+    def test_precedencia(self):
+        cfg0, nome0 = wy.config_com_preset("BOVA11")
+        self.assertIsNone(nome0)
+        self.assertEqual(cfg0.pivo, 3)
+        self.assertEqual(cfg0.sos_vol, 1.3)
+        self.assertEqual(cfg0.passo_preco, 0.0)
+
+        cfg1, nome1 = wy.config_com_preset("WIN")
+        self.assertEqual(nome1, "WIN$")
+        self.assertEqual(cfg1.pivo, 5)
+        self.assertEqual(cfg1.sos_vol, 1.6)
+        self.assertEqual(cfg1.sos_atr, 0.5)
+        self.assertEqual(cfg1.largura_max_atr, 10.0)
+        self.assertEqual(cfg1.pivos_janela, 30)
+        self.assertEqual(cfg1.passo_preco, 50.0)
+        # campos fora do preset ficam no default
+        self.assertEqual(cfg1.n_atr, 14)
+        self.assertEqual(cfg1.climax_vol, 2.0)
+
+        cfg2, nome2 = wy.config_com_preset("WIN$", {"pivo": 7, "sos_vol": None, "n_atr": 20})
+        self.assertEqual(nome2, "WIN$")
+        self.assertEqual(cfg2.pivo, 7)          # flag explicita vence o preset
+        self.assertEqual(cfg2.sos_vol, 1.6)     # None nao sobrescreve: fica o preset
+        self.assertEqual(cfg2.n_atr, 20)        # override de campo sem preset
+        self.assertEqual(cfg2.sos_atr, 0.5)     # resto do preset intacto
+
+        # painel aplica o preset quando cfg=None (caminho do dashboard)
+        self.assertEqual(wy.config_com_preset("win")[1], "WIN$")
+
+
 if __name__ == "__main__":
     unittest.main()
