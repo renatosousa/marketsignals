@@ -6,6 +6,7 @@
 GET /api/dados?janela=<segundos|pregao>  -> JSON com status das coletas, WIN/BOVA11, opcoes e macro
                                            (inclui a inflacao implicita intradiaria DI x DAP).
 GET /api/inflacao                         -> curva de inflacao implicita ANBIMA (coletor_anbima.py) e NTN-B.
+GET /api/wyckoff?ativo=WIN&tf=60min       -> fase/eventos Wyckoff objetivos (wyckoff.py) das ultimas barras fechadas.
 Todos os ts sao hora do servidor MT5 (Brasilia) codificada como epoch "UTC", como no banco.
 """
 import argparse
@@ -24,6 +25,7 @@ import numpy as np
 import banco
 import curvas
 import opcoes_manual as om
+import wyckoff
 
 AQUI = Path(__file__).parent
 PONTOS = 600            # pontos por serie temporal (define o tamanho do balde)
@@ -463,6 +465,18 @@ def main():
             elif u.path == "/api/inflacao":
                 try:
                     self.enviar(200, json.dumps(json_limpo(inflacao_anbima(app.db)), ensure_ascii=False).encode(),
+                                "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
+            elif u.path == "/api/wyckoff":
+                q = parse_qs(u.query)
+                ativo, tf = q.get("ativo", ["WIN"])[0], q.get("tf", ["60min"])[0]
+                if ativo.upper() not in ("WIN", "WDO", "WIN$", "WDO$", "BOVA11") or tf not in ("15min", "30min", "60min", "D"):
+                    return self.enviar(400, b'{"erro":"ativo ou tf invalido"}', "application/json")
+                try:
+                    r = wyckoff.painel(app.db, ativo, tf)
+                    self.enviar(200, json.dumps(json_limpo(r), ensure_ascii=False).encode(),
                                 "application/json; charset=utf-8")
                 except Exception as e:
                     self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
