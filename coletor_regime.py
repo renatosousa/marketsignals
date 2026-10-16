@@ -89,8 +89,17 @@ def estado(db, modelo, agora_ms):
     # DI1F29 hoje x fechamento anterior (pontos-base)
     di_hoje, _ = ultimo_valor(db, "SELECT mid, ts_ms FROM macro_cotacoes WHERE symbol='DI1F29' AND ts_ms >= ? "
                                   "ORDER BY ts_ms DESC LIMIT 1", ini)
-    di_ant, _ = ultimo_valor(db, "SELECT close, ts_ms FROM barras_1m WHERE symbol='DI1F29' AND ts_ms < ? "
-                                 "ORDER BY ts_ms DESC LIMIT 1", int(hoje.value // 10**6))
+    # fechamento anterior: vale o dado mais recente entre a barra de 1 min e a ultima cotacao ao vivo do coletor
+    # macro. As barras so chegam por backfill e, na partida das 08:55, podem faltar as do fim da tarde de ontem
+    # (15/10/2026: referencia velha gerou um alerta falso de +17 bps na abertura)
+    t_hoje = int(hoje.value // 10**6)
+    ref_barra = db.execute("SELECT close, ts_ms FROM barras_1m WHERE symbol='DI1F29' AND ts_ms < ? "
+                           "ORDER BY ts_ms DESC LIMIT 1", (t_hoje,)).fetchone()
+    ref_vivo = db.execute("SELECT mid, ts_ms FROM macro_cotacoes WHERE symbol='DI1F29' AND ts_ms < ? "
+                          "AND ts_ms >= ? AND mid IS NOT NULL ORDER BY ts_ms DESC LIMIT 1",
+                          (t_hoje, t_hoje - 5 * 86400_000)).fetchone()
+    refs = [r for r in (ref_barra, ref_vivo) if r and r[0] is not None]
+    di_ant = max(refs, key=lambda r: r[1])[0] if refs else None
     di_var = (di_hoje - di_ant) * 100 if di_hoje is not None and di_ant is not None else None
 
     # dolar: vol da ultima hora x normal do horario

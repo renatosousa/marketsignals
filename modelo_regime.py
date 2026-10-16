@@ -112,7 +112,7 @@ def treinar(con):
         slots=SLOTS, modelo_hora=modelo_hora, modelo_hora_curto=modelo_hora_curto, modelo_dia=modelo_dia,
         normal_win={sl: float(df.loc[df.slot == sl, "rv_pas"].median()) for sl in SLOTS},
         normal_wdo={sl: float(df.loc[df.slot == sl, "wdo_rv_pas"].median()) for sl in SLOTS},
-        di29_abs_pct={p: float(di_dia.abs().quantile(p / 100)) for p in (50, 80, 95)},
+        di29_abs_pct={str(p): float(di_dia.abs().quantile(p / 100)) for p in (50, 80, 95)},
         vol_diaria={str(k.date()): float(v) for k, v in diaria.tail(25).items()},
     )
 
