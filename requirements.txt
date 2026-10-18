@@ -8,3 +8,4 @@ transformers
 huggingface_hub
 torch
 # typesafe-sdk  # opcional, so para --jev (requer Python >= 3.10; US$ 0,05/dia)
+# timestral @ git+https://github.com/mistralai/timestral.git  # opcional, so para estudo_timestral.py (pesos: licenca Modified MIT)

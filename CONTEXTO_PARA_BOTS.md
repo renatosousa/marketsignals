@@ -36,6 +36,13 @@ O que já foi validado (não refaça do zero, mas questione se os dados novos co
    mas o giro (~91%) não sobrevive a custos.
 5. 1º turno em 04/10/2026. Em 05/10 o WIN abriu com gap de +9,2% e fechou +7,6%; WDO -4,4%;
    DI1F29 -104 bps; DI1F33 -123 bps; vol implícita ATM do vencimento de 16/10 foi de ~36% (02/10) para ~20%.
+6. Vol da próxima hora do WIN (estudo_timestral.py, 182 dias, walk-forward por dia, 19/10/2026): o modelo de regime
+   ganhou +0,025 de R² fora da amostra (0,721 → 0,746; t = +4,4; positivo em 6 de 7 meses) com médias móveis
+   exponenciais da vol em blocos de 5 min, a vol da última meia hora e a vol da mesma janela nos 5 dias anteriores
+   (`modelo_regime.EXTRAS`). O Timestral (Mistral, séries temporais zero-shot, 5M e 28M) acrescentou só +0,008 a
+   +0,0095 sobre essa base (abaixo do critério de +0,01); nos horários 10:05-10:20 o ganho foi maior (+0,09 a
+   +0,11), mas com 216 previsões e instável por mês. Não melhora a calibração da faixa: reescalar pela dispersão
+   do passado já dá cobertura de ±1σ ≈ 72% e ±2σ ≈ 96%. Ainda não está em produção nem em modo sombra.
 
 Lacunas conhecidas (cite-as quando afetarem a resposta):
 - 05/10 e 06/10: o PC entrou em suspensão; livro, agressão, opções e macro desses dois dias estão quase

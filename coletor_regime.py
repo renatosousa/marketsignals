@@ -55,7 +55,7 @@ def ultimo_valor(db, sql, *p):
     return (r[0], r[1]) if r and r[0] is not None else (None, None)
 
 
-def estado(db, modelo, agora_ms):
+def estado(db, modelo, agora_ms, hist=None):
     t = pd.Timestamp(agora_ms, unit="ms").floor("1min")
     hoje = t.normalize()
     ini = int((hoje + pd.Timedelta(rg.INICIO + ":00")).value // 10**6)
@@ -107,7 +107,13 @@ def estado(db, modelo, agora_ms):
     wdo_rv = rg.rv(rg.na_grade(wdo.dropna(), pas.index)) if len(wdo.dropna()) >= 30 else None
     wdo_rel = wdo_rv / modelo["normal_wdo"][sl] if wdo_rv else None
 
-    rv_prev = mr.prever_hora(modelo, t, rv_60, rv_ant, vix)
+    extras = None
+    if hist is not None:  # medias moveis da vol (modelo_regime.EXTRAS); sem elas, vale o modelo anterior
+        try:
+            extras = mr.extras_ao_vivo(modelo, hist, pw, t)
+        except Exception as e:
+            print(f"aviso: variaveis extras indisponiveis ({e.__class__.__name__}: {e})", flush=True)
+    rv_prev = mr.prever_hora(modelo, t, rv_60, rv_ant, vix, extras)
     rv_dia_real = rg.rv(pw)
 
     alertas = []
@@ -167,13 +173,21 @@ def main():
         raise SystemExit("sem modelo: rode modelo_regime.py")
     print(f"modelo de {modelo['treinado_em']} ({modelo['pregoes']} pregoes)", flush=True)
 
+    hist = None
+    if "forma" in modelo:  # estado das variaveis extras ao fim do ultimo pregao fechado
+        try:
+            con_h = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+            hist = mr.historico_extras(con_h, modelo)
+            con_h.close()
+        except Exception as e:
+            print(f"aviso: historico das variaveis extras nao carregado ({e.__class__.__name__}: {e})", flush=True)
     db = banco.abrir(args.db, SCHEMA)
     sessao = datetime.now().strftime("%Y%m%d_%H%M%S")
     fim = time.time() + args.segundos if args.segundos > 0 else float("inf")
     n = 0
     while time.time() < fim:
         try:
-            e = estado(db, modelo, int(local_br_ms()))
+            e = estado(db, modelo, int(local_br_ms()), hist)
             if e:
                 db.execute(f"INSERT OR REPLACE INTO regime_live ({','.join(['sessao'] + list(e))}) "
                            f"VALUES ({','.join('?' * (len(e) + 1))})", [sessao] + list(e.values()))
