@@ -1,15 +1,16 @@
 """Modelo de regime do WIN (resultado do estudo_regime.py), treinado com todo o historico.
 
   hora : log(vol da proxima hora) ~ horario + vol do WIN na ultima hora (e na anterior) +
-         vol diaria do WIN (vespera, 5 e 20 dias) + log(VIX) + EXTRAS (medias moveis exponenciais da vol em blocos
-         de 5 min, vol da ultima meia hora e vol da mesma janela nos dias anteriores). R2 fora da amostra ~0,76
-         no estudo; os EXTRAS somam ~+0,03 (estudo_timestral.py, 182 dias, positivo em 7 de 7 meses).
+         vol diaria do WIN (vespera, 5 e 20 dias) + EXTRAS (medias moveis exponenciais da vol em blocos de 5 min,
+         vol da ultima meia hora e vol da mesma janela nos dias anteriores). R2 fora da amostra ~0,76; os EXTRAS
+         somam ~+0,03 (estudo_timestral.py, 182 dias, positivo em 7 de 7 meses). O VIX saiu do modelo em 19/10/2026:
+         com os EXTRAS ele piorava a previsao fora da amostra (R2 0,758 sem VIX, 0,750 com VIX intradiario).
   dia  : log(vol do dia) ~ vol diaria do WIN (vespera, 5 e 20 dias). R2 ~0,47.
   normais: vol tipica de 60 min em cada horario (WIN e WDO), para a vol relativa.
   DI   : distribuicao da variacao diaria do DI1F29, para dizer se o dia de hoje e atipico.
 
-O macro entra como contexto (so o VIX mostrou ganho, pequeno); direcao e tendencia nao sao
-previsiveis (ver estudo) e por isso nao ha modelo para elas.
+O macro entra so como contexto (alertas e painel); direcao e tendencia nao sao previsiveis (ver estudo) e por
+isso nao ha modelo para elas.
 
 Uso: python modelo_regime.py [--db dados/book.db] [--sem-atualizar]   -> grava dados/modelo_regime.json
 """
@@ -130,7 +131,7 @@ def extras_ao_vivo(modelo, hist, pw, t):
 
 
 def atualizar_barras(db_path, dias=10):
-    """Traz as barras de 1 min recentes (MT5 e, se o Gateway estiver aberto, VIX da IBKR)."""
+    """Traz as barras de 1 min recentes do MT5 (e corrige a escala se houve rolagem do WIN/WDO)."""
     import banco
     import backfill_barras as bb
     db = banco.abrir(db_path, bb.SCHEMA)
@@ -141,19 +142,6 @@ def atualizar_barras(db_path, dias=10):
         bb.backfill_mt5(db, ini, fim)
     except BaseException as e:  # MT5 fora: treina com o que ja existe
         print(f"aviso: barras do MT5 nao atualizadas ({e})", flush=True)
-    try:
-        from ib_async import IB, Index
-        from datetime import timezone
-        ib = IB()
-        ib.connect("127.0.0.1", 4001, clientId=16, readonly=True, timeout=15)
-        c = Index("VIX", "CBOE")
-        ib.qualifyContracts(c)
-        barras = bb.barras_ib(ib, c, ini.replace(tzinfo=timezone.utc), fim.replace(tzinfo=timezone.utc))
-        bb.gravar(db, bb.linhas_ib("IB:VIX", "VIX", barras))
-        ib.disconnect()
-        print(f"VIX: {len(barras)} barras recentes", flush=True)
-    except Exception as e:
-        print(f"aviso: VIX da IBKR nao atualizado ({e.__class__.__name__})", flush=True)
     db.close()
 
 
@@ -168,7 +156,7 @@ def ajustar(df, alvo, cols):
 
 
 def treinar(con):
-    win, vix, wdo, di = (rg.carregar(con, s) for s in ("WIN$", "IB:VIX", "WDO$", "DI1F29"))
+    win, wdo, di = (rg.carregar(con, s) for s in ("WIN$", "WDO$", "DI1F29"))
     dias = sorted(set(win.index.normalize()))
     rv_dia, linhas, blocos = {}, [], {}
     for d in dias:
@@ -187,15 +175,14 @@ def treinar(con):
                 rv_fut=rg.rv(pw[t:t + pd.Timedelta("59min")]),
                 rv_pas=rg.rv(pw[t - pd.Timedelta("60min"):t - pd.Timedelta("1min")]),
                 rv_ant=rg.rv(ant) if ant.notna().sum() >= 30 else np.nan,
-                wdo_rv_pas=rg.rv(pwdo[t - pd.Timedelta("60min"):t - pd.Timedelta("1min")]),
-                vix=rg.preco_em(vix, t, "3D")))
+                wdo_rv_pas=rg.rv(pwdo[t - pd.Timedelta("60min"):t - pd.Timedelta("1min")])))
     df = pd.DataFrame(linhas)
     diaria = pd.Series(rv_dia).sort_index()
     ant = diaria.shift(1)
     hist = pd.DataFrame({"log_d1": np.log(ant), "log_d5": np.log(ant.rolling(5, min_periods=3).mean()),
                          "log_d20": np.log(ant.rolling(20, min_periods=10).mean()), "log_rv_dia": np.log(diaria)})
     df = df.merge(hist.rename_axis("dia").reset_index(), on="dia", how="left")
-    for c in ("rv_fut", "rv_pas", "rv_ant", "vix"):
+    for c in ("rv_fut", "rv_pas", "rv_ant"):
         df[f"log_{c}"] = np.log(df[c])
     df, forma = extras_treino(df, blocos)
     for sl in SLOTS[1:]:
@@ -203,7 +190,7 @@ def treinar(con):
     hs = [f"h_{sl}" for sl in SLOTS[1:]]
 
     # dois modelos de hora: com a hora anterior (a partir de 11:05) e sem (10:05-11:04)
-    base = hs + ["log_rv_pas"] + VAR_LONGAS + ["log_vix"]
+    base = hs + ["log_rv_pas"] + VAR_LONGAS
     modelo_hora_base = ajustar(df, "log_rv_fut", base + ["log_rv_ant"])  # sem EXTRAS (fallback ao vivo)
     modelo_hora = ajustar(df, "log_rv_fut", base + ["log_rv_ant"] + EXTRAS)
     modelo_hora_curto = ajustar(df, "log_rv_fut", base)
@@ -246,13 +233,15 @@ def slot_de(t):
     return validos[-1] if validos else None
 
 
-def prever_hora(modelo, t, rv_pas, rv_ant, vix, extras=None):
+def _prever_hora(modelo, t, rv_pas, rv_ant, vix=None, extras=None):
     """Vol prevista (%) para os proximos 60 min. None antes de 10:05 ou sem dados. Com `extras` (extras_ao_vivo)
     usa o modelo com as medias moveis; sem eles, o modelo anterior."""
     sl, longa = slot_de(t), vol_longa(modelo, t)
-    if sl is None or longa is None or not (rv_pas and rv_pas > 0 and vix and vix > 0):
+    if sl is None or longa is None or not (rv_pas and rv_pas > 0):
         return None
-    x = {f"h_{s}": float(s == sl) for s in SLOTS[1:]} | longa | {"log_rv_pas": np.log(rv_pas), "log_vix": np.log(vix)}
+    x = {f"h_{s}": float(s == sl) for s in SLOTS[1:]} | longa | {"log_rv_pas": np.log(rv_pas)}
+    if vix and vix > 0:  # so modelos treinados antes de 19/10/2026 usam o VIX; sem ele (e sem a chave) a previsao e None
+        x["log_vix"] = np.log(vix)
     if rv_ant and rv_ant > 0:
         x["log_rv_ant"] = np.log(rv_ant)
         if "log_ew_1h" in modelo["modelo_hora"]["coef"]:
@@ -261,6 +250,14 @@ def prever_hora(modelo, t, rv_pas, rv_ant, vix, extras=None):
             return float(np.exp(_prever(modelo["modelo_hora_base"], x)))
         return float(np.exp(_prever(modelo["modelo_hora"], x)))
     return float(np.exp(_prever(modelo["modelo_hora_curto"], x)))
+
+
+def prever_hora(modelo, t, rv_pas, rv_ant, vix=None, extras=None):
+    """Ver _prever_hora. Modelo salvo com o VIX (antes de 19/10/2026) e VIX ausente -> None."""
+    try:
+        return _prever_hora(modelo, t, rv_pas, rv_ant, vix, extras)
+    except KeyError:
+        return None
 
 
 def prever_dia(modelo, hoje):
@@ -279,8 +276,7 @@ def main():
     m = treinar(con)
     ARQ.write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
     print(f"modelo salvo em {ARQ} | {m['pregoes']} pregoes {m['periodo']} | R2 (na amostra) hora "
-          f"{m['modelo_hora']['r2']:.2f}, dia {m['modelo_dia']['r2']:.2f} | coef VIX "
-          f"{m['modelo_hora']['coef']['log_vix']:+.3f}", flush=True)
+          f"{m['modelo_hora']['r2']:.2f}, dia {m['modelo_dia']['r2']:.2f}", flush=True)
 
 
 if __name__ == "__main__":

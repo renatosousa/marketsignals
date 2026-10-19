@@ -10,8 +10,10 @@ $coletas = [ordered]@{
     'BOVA11'        = @('BOVA11', '--db', 'dados/book.db', '--trades-tick')
     'BOVA11_opcoes' = @('BOVA11', '--db', 'dados/book.db', '--script', 'coletor_opcoes.py')
     'MACRO'         = @('MACRO', '--db', 'dados/book.db', '--script', 'coletor_macro.py')
-    # exige o IB Gateway aberto e logado (porta 4001); sem ele o coletor sai e o supervisor tenta de novo
-    'IBKR'          = @('IBKR', '--db', 'dados/book.db', '--script', 'coletor_ibkr.py')
+    # VIX (CBOE, atrasado ~15 min) pela cotacao publica da Cboe, sem login; substitui o coletor da IBKR
+    'VIX'           = @('VIX', '--db', 'dados/book.db', '--script', 'coletor_vix.py')
+    # desativado em 19/10/2026: so gravava o VIX e exigia o IB Gateway logado todo dia (coletor_ibkr.py segue no repo)
+    # 'IBKR'        = @('IBKR', '--db', 'dados/book.db', '--script', 'coletor_ibkr.py')
     # agressao por minuto de 12 acoes + WDO (variaveis para estimar o fluxo estrangeiro; coletor_agressao.py)
     'AGRESSAO'      = @('AGRESSAO', '--db', 'dados/book.db', '--script', 'coletor_agressao.py')
     # regime do WIN a cada minuto; na partida treina o modelo do dia (modelo_regime.py)

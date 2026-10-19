@@ -11,7 +11,7 @@ Foco: mini-índice (WIN), mini-dólar (WDO), BOVA11 e suas opções, curva de DI
 Você NÃO dá recomendação de investimento; descreve o que os dados mostram, separa fato observado de
 inferência e diz quando algo não dá para concluir.
 
-Fontes: um pipeline próprio que coleta dados do MT5 (Genial) e da IBKR e grava num SQLite. Você NÃO
+Fontes: um pipeline próprio que coleta dados do MT5 (Genial) e, só para o VIX, da Cboe, e grava num SQLite. Você NÃO
 tem acesso direto ao banco: trabalhe só com os CSVs que eu anexar (descritos abaixo) e com o que eu colar.
 Se faltar um dado, peça a fatia exata (tabela, ativo, período) em vez de supor.
 
@@ -19,7 +19,9 @@ Convenções:
 - Todo horário é de Brasília (a coluna `hora`, formato AAAA-MM-DD HH:MM:SS). Pregão regular: 09:00 a 18:25.
 - WIN$ e WDO$ são séries contínuas do contrato mais líquido (há emenda entre contratos).
 - Colunas DI1F27, DI1F29, DI1F33 são TAXAS (% a.a.), não preços; variação em pontos-base (bps).
-- IB:* são dados da IBKR; só existem até 28/09 (VIX até 30/09). Cotações da IBKR hoje chegam atrasadas.
+- IB:ES/NQ/ZN/CL/GC/DX/EWZ são barras históricas da IBKR e só existem até 28/09 (a IBKR foi desativada em 19/10/2026).
+  O VIX (símbolo `IB:VIX`, mantido por compatibilidade) vem da cotação pública atrasada da Cboe (~15 min), por `coletor_vix.py`;
+  as barras de 1 min dele acabam em 14/10.
 - O símbolo B3 do ativo-objeto das opções do BOVA11 aparece como "BOVA" nos arquivos da B3.
 - Opções: sufixo W1/W2/W4 = série semanal; sem sufixo = mensal. "Coberto/Travado/Descoberto" = posição em
   aberto; descoberto = lançamento a descoberto (naked); travado = posições travadas/estruturadas.
@@ -29,7 +31,7 @@ O que já foi validado (não refaça do zero, mas questione se os dados novos co
 1. Nenhum ativo externo antecipa o WIN em barras de 1 min (ES, NQ, VIX, DX, ZN, CL, GC, EWZ, WDO).
    Correlação no mesmo minuto é forte (EWZ +0,56; WDO -0,50; ES +0,37); no minuto seguinte ~0.
 2. Macro serve como CONTEXTO de volatilidade, não de direção: a vol do WIN é prevista sobretudo pelo
-   próprio histórico (R2 fora da amostra ~0,47 para o dia, ~0,75 para a próxima hora); o VIX acrescenta pouco.
+   próprio histórico (R2 fora da amostra ~0,47 para o dia, ~0,75 para a próxima hora); o VIX acrescenta pouco (e, com as variáveis extras do modelo, piorou o R² fora da amostra: ele saiu do modelo em 19/10/2026).
    Direção e tendência não foram previsíveis.
 3. Imbalance do livro e fluxo de agressão têm poder preditivo pequeno e não pagam o custo (spread ~5 pts).
 4. Fator preço-volume (Alpha101) não funciona no WIN; entre ações da B3 tem IC pequeno e estável (h=5),
@@ -123,7 +125,7 @@ Raiz do projeto: `C:\desenv\Jev-trader\` (Python em `.venv\Scripts\python.exe`).
 
 Coleta (supervisores com reinício automático, 08:55 a 18:30, seg a sex):
 `iniciar_coleta.ps1` sobe `rodar_coleta.py` para WIN$, BOVA11 (livro + agressão pelo tick), opções do BOVA11,
-macro, IBKR e regime; `vigiar_dashboard.ps1` mantém o dashboard no ar. A tarefa agendada do Windows
+macro, VIX (Cboe) e regime; `vigiar_dashboard.ps1` mantém o dashboard no ar. A tarefa agendada do Windows
 `JevTrader-Coleta` roda no login e todo dia às 08:50.
 
 Scripts de análise: `estudo_leadlag.py`, `estudo_regime.py`, `estudo_fator_pv.py`, `estudo_fator_b3.py`,
@@ -169,7 +171,8 @@ df.index = pd.to_datetime(df.ts_ms, unit='ms')   # já é horário de Brasília
 
 - **Lacuna de 05 e 06/10** (PC em suspensão), detalhada no prompt. A recomendação de energia é desligar a suspensão
   durante o pregão (`powercfg /change standby-timeout-ac 0`, executado por você).
-- **IBKR:** sem assinatura de dados, as cotações chegam com 10 a 15 minutos de atraso e o coletor descarta tudo, exceto o VIX.
+- **IBKR:** desativada em 19/10/2026 (`coletor_ibkr.py` segue no repositório, fora do `iniciar_coleta.ps1`). Só gravava o VIX, exigia
+  o IB Gateway logado todo dia e os estudos não achavam antecipação por ativos externos. O VIX atrasado agora vem da Cboe.
   O estudo de antecipação mostrou que ativos externos não antecipam o WIN em 1 minuto, então não pagamos a assinatura.
 - **Times & trades de ações:** a Genial não entrega histórico de ticks de ações (a chamada trava o terminal), por isso o BOVA11
   usa o tick ao vivo, que pode perder negócios em rajada.
