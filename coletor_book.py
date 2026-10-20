@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 import MetaTrader5 as mt5
 
 import banco
+from conexao import Guarda, janela_de
 from relogio import Relogio
 
 SCHEMA = """
@@ -188,6 +189,7 @@ def main():
     sessao = datetime.now().strftime("%Y%m%d_%H%M%S")
     ultimo_msc = int(mt5.symbol_info_tick(sym).time_msc)
     relogio = Relogio()
+    guarda = Guarda(f"livro {sym}", mt5, *janela_de(sym))  # nao grava dado parado (queda de conexao)
     saldo = 0.0
     ant_b, ant_a = {}, {}
     limiar = None
@@ -203,9 +205,13 @@ def main():
     try:
         while time.time() < fim:
             tk = mt5.symbol_info_tick(sym)
-            if tk is None:  # terminal desconectado / sem cotacao: espera e tenta de novo
+            if not guarda.ok(tk):  # sem cotacao, terminal desconectado ou tick velho em pregao: nao grava (ver conexao.py)
                 time.sleep(1)
                 continue
+            if guarda.voltou:  # recuperou de uma queda: descarta os ticks perdidos e o livro velho (sem evento falso)
+                ultimo_msc = int(tk.time_msc)
+                ant_b, ant_a = {}, {}
+                estado_tick = {}
             # relogio do PC + offset p/ o servidor (ver relogio.py). Usar a hora do tick direto
             # repete o ts quando o ativo fica sem negocio (snapshots se sobrescreviam).
             agora = relogio.agora(tk.time_msc)

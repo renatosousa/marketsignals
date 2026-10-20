@@ -112,7 +112,13 @@ def dados(con, janela):
             ts = con.execute(sql).fetchone()[0]
         except sqlite3.OperationalError:
             ts = None
-        status.append(dict(nome=nome, ts=ts / 1000 if ts else None, idade_s=(agora - ts) / 1000 if ts else None))
+        item = dict(nome=nome, ts=ts / 1000 if ts else None, idade_s=(agora - ts) / 1000 if ts else None)
+        if nome.startswith("WIN"):
+            try:
+                item["parado_s"] = parado_ha(con, "WIN$")
+            except sqlite3.OperationalError:
+                pass
+        status.append(item)
     db_path = Path(con.execute("PRAGMA database_list").fetchone()[2])
     db_mb = sum(p.stat().st_size for p in (db_path, Path(f"{db_path}-wal")) if p.exists()) / 2**20
 
@@ -223,6 +229,20 @@ def dados(con, janela):
                    inclinacao=incl, correl=correl, breakeven=be,
                    ultimo={s: next((x for x in reversed(macro_niv[s]) if x is not None), None) for s in todos}),
     )
+
+
+def parado_ha(con, symbol, janela=900):
+    """Segundos desde que o mid do ultimo snapshot de `symbol` esta igual (olhando as ultimas `janela` linhas).
+    Preco do WIN parado em pregao = sem conexao com o servidor (conexao.py, lacunas.py). None se nao ha dados."""
+    linhas = con.execute("SELECT ts_ms, mid FROM snapshots WHERE symbol=? ORDER BY ts_ms DESC LIMIT ?",
+                         (symbol, janela)).fetchall()
+    if not linhas:
+        return None
+    t_ult, mid_ult = linhas[0]
+    for ts, mid in linhas:
+        if mid != mid_ult:
+            return (t_ult - ts) / 1000
+    return (t_ult - linhas[-1][0]) / 1000
 
 
 def breakeven_intradia(con, t1, macro_niv, n):

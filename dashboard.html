@@ -286,6 +286,7 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
       if (s.idade_s == null) { cls = "critical"; ico = "✕"; txt = "Sem dados"; }
       else if (!pregao) { cls = "muted"; ico = "○"; txt = "Fora do pregão"; }
       else if (s.idade_s > 180) { cls = "critical"; ico = "✕"; txt = "Parado"; }
+      else if (s.parado_s != null && s.parado_s > 120) { cls = "critical"; ico = "✕"; txt = `Congelado: preço parado há ${Math.round(s.parado_s / 60)} min`; }
       else if (s.idade_s > 30) { cls = "warning"; ico = "▲"; txt = "Atrasado"; }
       const idade = s.idade_s == null ? "" : s.idade_s < 120 ? `há ${Math.round(s.idade_s)} s` : `há ${Math.round(s.idade_s / 60)} min`;
       return `<div class="card tile"><div class="rot">${s.nome}</div>

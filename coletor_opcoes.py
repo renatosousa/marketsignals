@@ -36,6 +36,7 @@ import MetaTrader5 as mt5
 import numpy as np
 
 import banco
+from conexao import Guarda, janela_de
 from relogio import Relogio
 
 SCHEMA = """
@@ -230,11 +231,12 @@ def main():
     print(f"Coletando opcoes de {sub} -> {args.db} (sessao {sessao}, taxa {origem_taxa}). Ctrl+C para parar.",
           flush=True)
 
+    guarda = Guarda(f"opcoes de {sub}", mt5, *janela_de(sub))  # spot parado = IV errada (queda de conexao)
     try:
         while time.time() < fim:
             t_loop = time.time()
             tk = mt5.symbol_info_tick(sub)
-            if tk is None or tk.time_msc == 0:
+            if tk is None or tk.time_msc == 0 or not guarda.ok(tk):
                 time.sleep(1)
                 continue
             agora_ms = relogio.agora(tk.time_msc)

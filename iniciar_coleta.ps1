@@ -19,7 +19,9 @@ $coletas = [ordered]@{
     # regime do WIN a cada minuto; na partida treina o modelo do dia (modelo_regime.py)
     'REGIME'        = @('REGIME', '--db', 'dados/book.db', '--script', 'coletor_regime.py')
     # noticias (RSS BR, BCB, Fed, Finnhub, GDELT) + sentimento FinBERT local; ver coletor_noticias.py
-    'NOTICIAS'      = @('NOTICIAS', '--db', 'dados/book.db', '--script', 'coletor_noticias.py', '--inicio', '06:00', '--fim', '23:30')
+    # DESATIVADO em 20/10/2026: faltam feedparser/transformers/FinBERT no .venv e o supervisor reiniciava a cada 10 s.
+    # Para reativar: instalar as dependencias (README_NOTICIAS.md) e descomentar a linha abaixo.
+    # 'NOTICIAS'    = @('NOTICIAS', '--db', 'dados/book.db', '--script', 'coletor_noticias.py', '--inicio', '06:00', '--fim', '23:30')
 }
 
 $rodando = Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
