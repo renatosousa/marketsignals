@@ -6,6 +6,7 @@ Uso:
 from datetime import date
 
 import curvas
+import coletor_tesouro as ct
 
 
 def test_breakeven_tesouro():
@@ -25,7 +26,7 @@ def test_breakeven_tesouro():
     assert be_zero is not None
     assert abs(be_zero) < 0.001
     
-    print("✓ test_breakeven_tesouro")
+    print("OK test_breakeven_tesouro")
 
 
 def test_parear_vencimentos():
@@ -62,7 +63,7 @@ def test_parear_vencimentos():
     assert abs(p32["taxa_ipca"] - 6.80) < 0.01
     assert p32["diferenca_dias"] == 227  # 01/01 ate 15/08
     
-    print("✓ test_parear_vencimentos")
+    print("OK test_parear_vencimentos")
 
 
 def test_parear_sem_taxa():
@@ -75,7 +76,7 @@ def test_parear_sem_taxa():
     pares = curvas.parear_vencimentos_tesouro(titulos)
     assert len(pares) == 0  # nao ha par completo
     
-    print("✓ test_parear_sem_taxa")
+    print("OK test_parear_sem_taxa")
 
 
 def test_parear_apenas_compra():
@@ -93,7 +94,7 @@ def test_parear_apenas_compra():
     assert abs(p["taxa_pre"] - 12.64) < 0.01
     assert abs(p["taxa_ipca"] - 6.77) < 0.01
     
-    print("✓ test_parear_apenas_compra")
+    print("OK test_parear_apenas_compra")
 
 
 def test_parear_multiplos_anos():
@@ -113,7 +114,54 @@ def test_parear_multiplos_anos():
     safras = sorted([p["safra"] for p in pares])
     assert safras == [2029, 2040]
     
-    print("✓ test_parear_multiplos_anos")
+    print("OK test_parear_multiplos_anos")
+
+
+def test_pareamento_ignora_titulos_com_cupom():
+    """NTN-F e NTN-B com juros semestrais nao podem sobrescrever o Prefixado/IPCA+ sem cupom do mesmo ano."""
+    titulos = [
+        {"tipo_titulo": "Tesouro Prefixado", "vencimento": "2029-01-01", "taxa_compra": 12.60, "taxa_venda": 12.68},
+        {"tipo_titulo": "Tesouro Prefixado com Juros Semestrais", "vencimento": "2029-01-01", "taxa_compra": 9.00, "taxa_venda": 9.10},
+        {"tipo_titulo": "Tesouro IPCA+", "vencimento": "2029-05-15", "taxa_compra": 6.75, "taxa_venda": 6.79},
+        {"tipo_titulo": "Tesouro IPCA+ com Juros Semestrais", "vencimento": "2029-05-15", "taxa_compra": 4.00, "taxa_venda": 4.10},
+    ]
+    for ordem in (titulos, titulos[::-1]):  # o resultado nao pode depender da ordem das linhas
+        pares = curvas.parear_vencimentos_tesouro(ordem)
+        assert len(pares) == 1
+        assert abs(pares[0]["taxa_pre"] - 12.64) < 0.01 and abs(pares[0]["taxa_ipca"] - 6.77) < 0.01
+    print("OK test_pareamento_ignora_titulos_com_cupom")
+
+
+CSV_MANHA = (
+    "Tipo Titulo;Data Vencimento;Data Base;Taxa Compra Manha;Taxa Venda Manha;PU Compra Manha;PU Venda Manha;PU Base Manha\n"
+    "Tesouro Prefixado;01/01/2029;22/10/2026;12,60;12,70;650,10;649,00;650,00\n"
+    "Tesouro IPCA+;15/05/2029;22/10/2026;6,75;6,85;3.100,50;3.090,00;3.095,00\n"
+    "Tesouro Selic;01/03/2031;22/10/2026;0,05;0,10;14.000,00;13.990,00;13.995,00\n"
+)
+
+
+def test_parser_aceita_colunas_com_e_sem_sufixo_manha():
+    linhas = ct.parsear_csv(CSV_MANHA)
+    assert len(linhas) == 2  # a Selic fica de fora
+    pre = next(l for l in linhas if l["tipo_titulo"] == "Tesouro Prefixado")
+    assert pre["data"] == "2026-10-22" and pre["vencimento"] == "2029-01-01"
+    assert pre["taxa_compra"] == 12.60 and pre["taxa_venda"] == 12.70
+    ipca = next(l for l in linhas if l["tipo_titulo"] == "Tesouro IPCA+")
+    assert ipca["pu_compra"] == 3100.50  # separador de milhar
+    sem_sufixo = CSV_MANHA.replace(" Manha", "")
+    linhas2 = ct.parsear_csv(sem_sufixo)
+    assert linhas2[0]["taxa_compra"] == 12.60
+    print("OK test_parser_aceita_colunas_com_e_sem_sufixo_manha")
+
+
+def test_parser_falha_com_cabecalho_inesperado():
+    try:
+        ct.parsear_csv("Titulo;Vencimento;Rentabilidade\nX;01/01/2029;12,6\n")
+    except ValueError as e:
+        assert "cabecalho" in str(e)
+    else:
+        raise AssertionError("devia falhar com cabecalho desconhecido (antes gravava NULL em silencio)")
+    print("OK test_parser_falha_com_cabecalho_inesperado")
 
 
 if __name__ == "__main__":
@@ -122,4 +170,7 @@ if __name__ == "__main__":
     test_parear_sem_taxa()
     test_parear_apenas_compra()
     test_parear_multiplos_anos()
-    print("\nTodos os testes passaram! ✓")
+    test_pareamento_ignora_titulos_com_cupom()
+    test_parser_aceita_colunas_com_e_sem_sufixo_manha()
+    test_parser_falha_com_cabecalho_inesperado()
+    print("\nTodos os testes passaram!")

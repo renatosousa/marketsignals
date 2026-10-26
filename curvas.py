@@ -149,9 +149,12 @@ def parear_vencimentos_tesouro(titulos):
         except (ValueError, AttributeError):
             continue
         
-        if "Tesouro Prefixado" in tipo and "IPCA" not in tipo:
+        # So os titulos SEM cupom (Tesouro Prefixado = LTN; Tesouro IPCA+ = NTN-B Principal): as versoes "com Juros
+        # Semestrais" (NTN-F e NTN-B) tem outra duracao e, por ano, sobrescreviam o titulo certo no dicionario.
+        sem_cupom = "Juros Semestrais" not in tipo
+        if tipo.startswith("Tesouro Prefixado") and sem_cupom:
             prefixados[ano] = {"vencimento": venc, "taxa": taxa}
-        elif "Tesouro IPCA+" in tipo or ("Tesouro" in tipo and "IPCA" in tipo):
+        elif tipo.startswith("Tesouro IPCA+") and sem_cupom:
             ipcas[ano] = {"vencimento": venc, "taxa": taxa}
     
     # Parear por ano (safra)

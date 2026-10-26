@@ -160,15 +160,15 @@ Os níveis de inflação implícita diferem alguns centésimos a ~0,2 p.p. nos p
 
 ## Exemplos de Leitura
 
-### Cenário 1: Breakeven > Focus
+### Cenário 1: Breakeven > Focus (Prefixado favorecido)
 - Prefixado 2029: 12,64% vs IPCA+ 6,77% → Breakeven = 5,50%
 - Focus (média 2026-2029): 4,32%
-- **Leitura:** IPCA+ favorecido (Focus abaixo do breakeven). Se o IPCA médio ficar nos 4,32% do Focus, IPCA+ rende mais.
+- **Leitura:** Prefixado favorecido (Focus abaixo do breakeven). Se o IPCA médio ficar nos 4,32% do Focus, o Prefixado rende mais que o IPCA+ (que só empata em 5,50%).
 
-### Cenário 2: Breakeven < Focus (hipotético)
+### Cenário 2: Breakeven < Focus (hipotético; IPCA+ favorecido)
 - Prefixado 2032: 11,50% vs IPCA+ 6,00% → Breakeven = 5,19%
 - Focus (média 2026-2032): 5,50%
-- **Leitura:** Prefixado favorecido (Focus acima do breakeven). Se o IPCA médio ficar nos 5,50% do Focus, Prefixado rende mais.
+- **Leitura:** IPCA+ favorecido (Focus acima do breakeven). Se o IPCA médio ficar nos 5,50% do Focus, o IPCA+ rende mais que o Prefixado (que só empata em 5,19%).
 
 ### Cenário 3: Breakeven próximo do teto
 - Prefixado 2035: 13,00% vs IPCA+ 6,50% → Breakeven = 6,10%

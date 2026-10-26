@@ -76,49 +76,79 @@ def num(v):
         return None
 
 
+# O arquivo do Tesouro Transparente traz as taxas como "Taxa Compra Manha"/"Taxa Venda Manha" (e PU "... Manha");
+# aceitamos tambem os nomes sem o sufixo. Se nenhuma variante existir, o coletor falha em vez de gravar NULL.
+COLS_OBRIGATORIAS = ("Tipo Titulo", "Data Vencimento", "Data Base")
+COLS_TAXA = {
+    "taxa_compra": ("Taxa Compra Manha", "Taxa Compra"),
+    "taxa_venda": ("Taxa Venda Manha", "Taxa Venda"),
+    "pu_compra": ("PU Compra Manha", "PU Compra"),
+    "pu_venda": ("PU Venda Manha", "PU Venda"),
+}
+
+
+def _col(row, nomes):
+    for n in nomes:
+        v = row.get(n)
+        if v is not None and v.strip():
+            return v
+    return ""
+
+
+def validar_cabecalho(campos):
+    """Levanta ValueError com mensagem clara se o CSV nao tem as colunas esperadas."""
+    campos = [c.strip() for c in (campos or [])]
+    faltam = [c for c in COLS_OBRIGATORIAS if c not in campos]
+    sem_taxa = not any(n in campos for n in COLS_TAXA["taxa_compra"] + COLS_TAXA["taxa_venda"])
+    if faltam or sem_taxa:
+        raise ValueError(f"cabecalho do CSV do Tesouro inesperado (faltam {faltam or 'colunas de taxa'}): {campos[:12]}")
+
+
 def parsear_csv(texto):
     """Parseia o CSV do Tesouro Direto e retorna lista de dicts com os dados.
-    
+
     Colunas esperadas:
     Data Vencimento, Tipo Titulo, Taxa Compra Manha, Taxa Venda Manha, PU Compra Manha, PU Venda Manha,
     Data Base, Taxa Compra, Taxa Venda, PU Compra, PU Venda
-    
-    Retorna: [{"data": "2026-10-20", "tipo_titulo": "Tesouro Prefixado 2029", "vencimento": "2029-01-01", 
+
+    Retorna: [{"data": "2026-10-20", "tipo_titulo": "Tesouro Prefixado 2029", "vencimento": "2029-01-01",
                "taxa_compra": 12.64, "taxa_venda": 12.74, "pu_compra": 800.12, "pu_venda": 799.00}, ...]
     """
     linhas = []
     reader = csv.DictReader(StringIO(texto), delimiter=";")
-    
+    reader.fieldnames = [c.strip() for c in (reader.fieldnames or [])]
+    validar_cabecalho(reader.fieldnames)
+
     for row in reader:
         try:
             # Data Base e Data Vencimento no formato DD/MM/YYYY
             data_base = row.get("Data Base", "").strip()
             if not data_base:
                 continue
-            
+
             d, m, a = data_base.split("/")
             data_iso = f"{a}-{m.zfill(2)}-{d.zfill(2)}"
-            
+
             venc = row.get("Data Vencimento", "").strip()
             if not venc:
                 continue
             dv, mv, av = venc.split("/")
             venc_iso = f"{av}-{mv.zfill(2)}-{dv.zfill(2)}"
-            
+
             tipo = row.get("Tipo Titulo", "").strip()
             if not tipo:
                 continue
-            
+
             # Pegar taxas do dia (nao da manha)
-            taxa_compra = num(row.get("Taxa Compra", ""))
-            taxa_venda = num(row.get("Taxa Venda", ""))
-            pu_compra = num(row.get("PU Compra", ""))
-            pu_venda = num(row.get("PU Venda", ""))
-            
+            taxa_compra = num(_col(row, COLS_TAXA["taxa_compra"]))
+            taxa_venda = num(_col(row, COLS_TAXA["taxa_venda"]))
+            pu_compra = num(_col(row, COLS_TAXA["pu_compra"]))
+            pu_venda = num(_col(row, COLS_TAXA["pu_venda"]))
+
             # Filtrar apenas Tesouro Prefixado e Tesouro IPCA+
             if not (tipo.startswith("Tesouro Prefixado") or tipo.startswith("Tesouro IPCA+")):
                 continue
-            
+
             linhas.append({
                 "data": data_iso,
                 "tipo_titulo": tipo,
@@ -131,7 +161,7 @@ def parsear_csv(texto):
         except (ValueError, KeyError, AttributeError) as e:
             log.debug(f"Linha ignorada no parse: {e}")
             continue
-    
+
     return linhas
 
 
@@ -140,7 +170,12 @@ def baixar_csv():
     for tent in range(TENTATIVAS):
         try:
             r = requests.get(URL_CSV, headers=UA, timeout=TIMEOUT)
+            if r.status_code == 429:  # o site limita requisicoes: respeita o Retry-After
+                espera = min(int(r.headers.get("Retry-After", "30") or 30), 120)
+                raise RuntimeError(f"HTTP 429 (muitas requisicoes); o servidor pede {espera} s")
             r.raise_for_status()
+            if "html" in (r.headers.get("content-type") or "").lower() or r.content[:15].lower().startswith(b"<!doctype"):
+                raise RuntimeError("o servidor devolveu uma pagina HTML (bloqueio/anti-bot) em vez do CSV")
             # CSV em latin-1
             return r.content.decode("latin-1")
         except Exception as e:
@@ -154,28 +189,31 @@ def coletar_intervalo(db, d0, d1):
     """Coleta dados do intervalo [d0, d1] e grava no banco (idempotente)."""
     log.info(f"Baixando CSV do Tesouro Direto...")
     texto = baixar_csv()
-    
+
     log.info(f"Parseando CSV...")
     linhas = parsear_csv(texto)
-    
+
     if not linhas:
         log.warning("Nenhuma linha valida no CSV")
         return 0
-    
+
     # Filtrar apenas as datas do intervalo
     linhas_filt = [l for l in linhas if d0 <= l["data"] <= d1]
-    
+
     if not linhas_filt:
         log.warning(f"Nenhum dado no intervalo {d0} a {d1}")
         return 2
-    
+
+    if all(l["taxa_compra"] is None and l["taxa_venda"] is None for l in linhas_filt):
+        raise ValueError(f"todas as taxas do intervalo {d0} a {d1} vieram vazias: layout do CSV mudou?")
+
     # Agrupar por data para gravacao idempotente
     por_data = {}
     for l in linhas_filt:
         por_data.setdefault(l["data"], []).append(l)
-    
+
     cap = agora_br().isoformat()
-    
+
     for data, items in sorted(por_data.items()):
         with db:
             db.execute("DELETE FROM tesouro_taxas WHERE data=?", (data,))
@@ -188,7 +226,7 @@ def coletar_intervalo(db, d0, d1):
                  for item in items]
             )
         log.info(f"{data}: {len(items)} titulos")
-    
+
     return 0
 
 
@@ -199,13 +237,13 @@ def main():
     ap.add_argument("--db", default=str(AQUI / "dados" / "book.db"))
     ap.add_argument("--log")
     args = ap.parse_args()
-    
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[logging.FileHandler(args.log, encoding="utf-8")] if args.log else [logging.StreamHandler()]
     )
-    
+
     db = banco.abrir(args.db, SCHEMA)
     try:
         if args.inicio and args.fim:
@@ -218,7 +256,7 @@ def main():
             hj = date.today()
             d0 = (hj - timedelta(days=10)).isoformat()
             d1 = hj.isoformat()
-        
+
         ret = coletar_intervalo(db, d0, d1)
         sys.exit(ret)
     except Exception as e:
