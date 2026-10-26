@@ -6,6 +6,8 @@
 GET /api/dados?janela=<segundos|pregao>  -> JSON com status das coletas, WIN/BOVA11, opcoes e macro
                                            (inclui a inflacao implicita intradiaria DI x DAP).
 GET /api/inflacao                         -> curva de inflacao implicita ANBIMA (coletor_anbima.py) e NTN-B.
+GET /api/tesouro-breakeven                -> inflacao implicita do Tesouro Direto (Prefixado x IPCA+) 
+                                           com expectativas do Focus.
 GET /api/wyckoff?ativo=WIN&tf=60min       -> fase/eventos Wyckoff objetivos (wyckoff.py) das ultimas barras fechadas.
 Todos os ts sao hora do servidor MT5 (Brasilia) codificada como epoch "UTC", como no banco.
 """
@@ -451,6 +453,121 @@ def posicao_aberta(db_path, subjacente="BOVA11", fonte=None):
     return max(cands, key=lambda x: x["capturado_em"]) if cands else (manual or b3)
 
 
+def tesouro_breakeven(db_path):
+    """Inflacao implicita do Tesouro Direto (Prefixado vs IPCA+) mais expectativas do Focus.
+    
+    Retorna:
+        {
+            "data_tesouro": "2026-10-25",
+            "pares": [
+                {
+                    "safra": 2029,
+                    "venc_pre": "2029-01-01",
+                    "venc_ipca": "2029-05-15",
+                    "taxa_pre": 12.64,
+                    "taxa_ipca": 6.77,
+                    "breakeven": 5.50,
+                    "diferenca_dias": 134,
+                    "focus_mediana": 4.32,  # média dos anos até vencimento quando disponível
+                    "leitura": "Prefixado favorecido (Focus abaixo do breakeven)"
+                },
+                ...
+            ],
+            "focus": {
+                "data": "2026-10-16",
+                "anos": {2026: {"mediana": 5.22, "top5": 5.30}, 2027: {"mediana": 4.32, ...}, ...}
+            },
+            "metas": {"meta": 3.0, "teto": 4.5}
+        }
+    """
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10)
+    try:
+        # Buscar ultimo dia com taxas do Tesouro
+        ult_tesouro = con.execute("SELECT data FROM tesouro_taxas ORDER BY data DESC LIMIT 1").fetchone()
+        if not ult_tesouro:
+            return None
+        
+        data_tesouro = ult_tesouro[0]
+        
+        # Buscar titulos do ultimo dia
+        titulos = [
+            dict(tipo_titulo=r[0], vencimento=r[1], taxa_compra=r[2], taxa_venda=r[3])
+            for r in con.execute(
+                "SELECT tipo_titulo, vencimento, taxa_compra, taxa_venda FROM tesouro_taxas WHERE data=?",
+                (data_tesouro,)
+            )
+        ]
+        
+        if not titulos:
+            return None
+        
+        # Parear e calcular breakeven
+        pares = curvas.parear_vencimentos_tesouro(titulos)
+        
+        # Buscar expectativas do Focus (ultima data disponivel)
+        ult_focus = con.execute("SELECT data FROM focus_ipca ORDER BY data DESC LIMIT 1").fetchone()
+        focus_data = None
+        focus_anos = {}
+        
+        if ult_focus:
+            focus_data = ult_focus[0]
+            for r in con.execute(
+                "SELECT data_ref, mediana, media, top5, minimo, maximo FROM focus_ipca WHERE data=? ORDER BY data_ref",
+                (focus_data,)
+            ):
+                focus_anos[r[0]] = {
+                    "mediana": r[1],
+                    "media": r[2],
+                    "top5": r[3],
+                    "minimo": r[4],
+                    "maximo": r[5],
+                }
+        
+        # Enriquecer pares com dados do Focus
+        from datetime import date as dt
+        hj = dt.today()
+        
+        for par in pares:
+            safra = par["safra"]
+            anos_ate = list(range(hj.year, safra + 1))
+            
+            # Média dos anos até o vencimento quando houver projeção
+            medianas = [focus_anos[a]["mediana"] for a in anos_ate if a in focus_anos and focus_anos[a]["mediana"] is not None]
+            
+            if medianas:
+                par["focus_mediana"] = sum(medianas) / len(medianas)
+                par["focus_anos"] = anos_ate
+                
+                # Leitura: Prefixado vence se IPCA médio ficar abaixo do breakeven; IPCA+ vence se ficar acima
+                be = par["breakeven"]
+                fm = par["focus_mediana"]
+                if fm < be:
+                    par["leitura"] = f"Prefixado favorecido (Focus {fm:.2f}% < breakeven {be:.2f}%)"
+                elif fm > be:
+                    par["leitura"] = f"IPCA+ favorecido (Focus {fm:.2f}% > breakeven {be:.2f}%)"
+                else:
+                    par["leitura"] = f"Neutro (Focus = breakeven {be:.2f}%)"
+            else:
+                par["focus_mediana"] = None
+                par["focus_anos"] = None
+                par["leitura"] = "Sem projeção do Focus disponível"
+        
+        return {
+            "data_tesouro": data_tesouro,
+            "pares": pares,
+            "focus": {
+                "data": focus_data,
+                "anos": focus_anos,
+            },
+            "metas": {"meta": 3.0, "teto": 4.5}
+        }
+    
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        con.close()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(AQUI / "dados" / "book.db"))
@@ -509,6 +626,14 @@ def main():
                     if fonte not in (None, "manual", "b3"):
                         return self.enviar(400, b'{"erro":"fonte invalida (manual|b3)"}', "application/json")
                     r = posicao_aberta(app.db, fonte=fonte)
+                    self.enviar(200, json.dumps(json_limpo(r), ensure_ascii=False).encode(),
+                                "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
+            elif u.path == "/api/tesouro-breakeven":
+                try:
+                    r = tesouro_breakeven(app.db)
                     self.enviar(200, json.dumps(json_limpo(r), ensure_ascii=False).encode(),
                                 "application/json; charset=utf-8")
                 except Exception as e:

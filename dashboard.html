@@ -191,6 +191,17 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
       <div class="card"><h3>NTN-B · taxa indicativa ANBIMA</h3><div class="unid" id="ntnb-sub">% a.a. e variação no dia</div><div id="ntnb"></div></div>
     </div>
     <p class="nota">Inflação implícita = diferença entre o juro pré e o juro real; inclui prêmio de risco de inflação (e de liquidez), então costuma ficar acima da expectativa do Focus. A intradiária usa futuros (DI1 e DAP na MT5) e a curva usa títulos (ANBIMA): níveis diferem alguns centésimos a ~0,2 p.p. nos prazos longos; compare variações, não níveis.</p>
+
+    <h2>Tesouro Direto · Inflação Implícita (Prefixado × IPCA+) <span class="sub" id="tesouro-sub"></span></h2>
+    <div id="tesouro-conteudo">
+      <div class="tiles" id="tiles-tesouro"></div>
+      <p class="nota" style="margin-top:12px"><strong>Breakeven</strong> = inflação implícita entre Tesouro Prefixado e Tesouro IPCA+: (1 + taxa pré) / (1 + juro real IPCA+) − 1. 
+      Comparação com a mediana das expectativas do Boletim Focus do BCB. 
+      <br><br><strong>Leitura:</strong> Se o IPCA médio até o vencimento ficar <em>abaixo</em> do breakeven, o Prefixado vence; se ficar <em>acima</em>, o IPCA+ vence. 
+      Prêmio de risco de inflação já incluído no breakeven (costuma ficar acima do Focus). 
+      <br><br><strong>Vencimentos não coincidem:</strong> Prefixado vence em 01/01, IPCA+ vence em maio/agosto (diferença de meses). Comparação é aproximada. 
+      <strong>Meta de inflação:</strong> 3,0% a.a. (teto: 4,5%).</p>
+    </div>
   </div>
 </main>
 
@@ -446,6 +457,56 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
     } catch (e) { /* silencioso: secao opcional */ }
   }
 
+  // ---------- tesouro direto
+  async function carregarTesouro() {
+    try {
+      const r = await fetch("/api/tesouro-breakeven");
+      const d = await r.json();
+      if (!d || !d.pares || !d.pares.length) {
+        $("#tesouro-sub").textContent = "sem dados (rode coletor_tesouro.py e coletor_focus.py)";
+        $("#tiles-tesouro").innerHTML = '<div class="vazio">Aguardando coleta de dados do Tesouro Direto e Focus</div>';
+        return;
+      }
+      
+      const dTes = d.data_tesouro ? new Date(d.data_tesouro + "T00:00:00").toLocaleDateString("pt-BR") : "–";
+      const dFoc = d.focus?.data ? new Date(d.focus.data + "T00:00:00").toLocaleDateString("pt-BR") : "–";
+      $("#tesouro-sub").textContent = `taxas do Tesouro de ${dTes} · Focus de ${dFoc}`;
+      
+      const meta = d.metas?.meta || 3.0;
+      const teto = d.metas?.teto || 4.5;
+      
+      $("#tiles-tesouro").innerHTML = d.pares.map(p => {
+        const be = p.breakeven;
+        const fm = p.focus_mediana;
+        const pre = p.taxa_pre;
+        const ipca = p.taxa_ipca;
+        
+        let corLeitura = "";
+        if (fm != null && be != null) {
+          if (fm < be - 0.5) corLeitura = "good";
+          else if (fm > be + 0.5) corLeitura = "critical";
+        }
+        
+        const anosStr = p.focus_anos ? `média ${p.focus_anos[0]}-${p.focus_anos[p.focus_anos.length - 1]}` : "";
+        
+        return `<div class="card tile">
+          <div class="rot">Safra ${p.safra}</div>
+          <div class="val">${fmt(be, 2)}% a.a.</div>
+          <div class="det">
+            Pré ${fmt(pre, 2)}% vs IPCA+ ${fmt(ipca, 2)}% (real)
+            <br>Focus ${fm != null ? fmt(fm, 2) + "% " + anosStr : "–"}
+            ${meta ? `· Meta ${fmt(meta, 1)}% (teto ${fmt(teto, 1)}%)` : ""}
+            <br><span class="${corLeitura}">${p.leitura || "–"}</span>
+          </div>
+        </div>`;
+      }).join("");
+      
+    } catch (e) { 
+      $("#tesouro-sub").textContent = "erro ao carregar";
+      $("#tiles-tesouro").innerHTML = `<div class="vazio">Erro: ${e.message}</div>`;
+    }
+  }
+
   // ---------- wyckoff
   async function carregarWyckoff() {
     try {
@@ -588,6 +649,8 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
   carregarPosicaoManual();
   carregarInflacao();
   setInterval(carregarInflacao, 600000);  // curva diaria: basta recarregar a cada 10 min
+  carregarTesouro();
+  setInterval(carregarTesouro, 600000);  // taxas do Tesouro: recarregar a cada 10 min
   carregarWyckoff();
   setInterval(carregarWyckoff, 600000);  // curva diaria: basta recarregar a cada 10 min
 })();
