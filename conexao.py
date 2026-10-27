@@ -24,11 +24,11 @@ CACHE_S = 3.0  # terminal_info() e barato, mas nao precisa rodar a cada iteracao
 
 def janela_de(simbolo):
     """(inicio, fim, idade maxima do tick em s) por tipo de ativo. Futuros e DI negociam 09:00-18:25; acoes e ETFs
-    10:00-17:00 (depois so o leilao de fechamento)."""
+    10:00-17:00 (depois so o leilao de fechamento); a guarda destes so vale a partir de 10:15."""
     s = simbolo.upper()
     if s.startswith(("WIN", "WDO", "IND", "DI1", "DAP")):
         return "09:05", "18:20", 120.0
-    return "10:05", "16:55", 180.0
+    return "10:15", "16:55", 180.0  # 10:05 gerava falso alarme: o BOVA11 fica >3 min sem tick logo depois da abertura
 
 
 class Guarda:

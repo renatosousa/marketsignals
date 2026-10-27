@@ -146,7 +146,7 @@ def atualizar_barras(db_path, dias=10):
 
 
 def ajustar(df, alvo, cols):
-    d = df[[alvo] + cols].dropna()
+    d = df[[alvo] + cols].replace([np.inf, -np.inf], np.nan).dropna()  # log(0) de janela sem negocio (leilao/halt de 26/10)
     A = np.column_stack([np.ones(len(d)), d[cols].to_numpy()])
     b = np.linalg.lstsq(A, d[alvo].to_numpy(), rcond=None)[0]
     res = d[alvo].to_numpy() - A @ b
