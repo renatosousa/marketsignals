@@ -56,6 +56,8 @@ h2 { font-size: 15px; font-weight: 650; margin: 28px 0 10px; }
 .tile .rot { color: var(--ink-2); font-size: 12px; }
 .tile .val { font-size: 24px; font-weight: 650; margin: 2px 0; }
 .tile .det { color: var(--ink-2); font-size: 12px; }
+.tile .det .good { color: var(--good); } .tile .det .warning { color: var(--warning); }
+.tile .det .critical { color: var(--critical); font-weight: 600; }
 .st { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
 .st i { font-style: normal; font-weight: 700; }
 .st.good i { color: var(--good); } .st.warning i { color: var(--warning); } .st.critical i { color: var(--critical); }
@@ -202,6 +204,18 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
       <br><br><strong>Vencimentos não coincidem:</strong> Prefixado vence em 01/01, IPCA+ vence em maio/agosto (diferença de meses). Comparação é aproximada. 
       <strong>Meta de inflação:</strong> 3,0% a.a. (teto: 4,5%).</p>
     </div>
+
+    <h2>Liquidez · Leilões de compromissadas do BC <span class="sub" id="bc-sub"></span></h2>
+    <div class="tiles" id="tiles-bc"></div>
+    <div class="grade" style="margin-top:12px">
+      <div class="card"><h3>Tomador · volume absorvido por dia</h3><div class="unid">R$ bi (soma dos leilões do dia; sexta = 3 dias corridos)</div><div class="graf" id="g-bc-tomador"></div></div>
+      <div class="card"><h3>Compromissada 1047 · taxa de corte</h3><div class="unid">% da Selic aplicado ao fator diário (não é % a.a.)</div><div class="graf" id="g-bc-1047"></div></div>
+      <div class="card"><h3>1047 · taxa efetiva × DI no vencimento</h3><div class="unid">% a.a. em cada leilão: 1047 (% da Selic × over), DI1 interpolado na data de recompra (curva das 12:30) e Selic over</div><div class="graf" id="g-bc-di"></div></div>
+      <div class="card"><h3>1047 · spread contra o DI</h3><div class="unid">bps = taxa efetiva da 1047 − DI no vencimento (abaixo de zero: o mercado projeta Selic acima da atual)</div><div class="graf" id="g-bc-spread"></div></div>
+    </div>
+    <p class="nota"><strong>Tomador</strong> (09:00, só dealers, 1 dia): o BC toma o excesso de reservas do sistema; o volume mede essa sobra de liquidez. A taxa sai na meta − 0,10; desvio diferente de zero é sinal de mudança na operação do BC.
+      <strong>1047</strong> (12:00–12:30, todo o mercado, 91/182 dias): as instituições aceitam receber um percentual da Selic; taxa de corte menor = mais demanda por aplicar com o BC (busca por segurança/caixa sobrando).
+      <strong>Contra o DI:</strong> a 1047 é pós-fixada (paga a Selic que ocorrer) e o DI embute a Selic esperada até o vencimento; o spread mistura o prêmio da operação com a expectativa de juros (positivo quando o mercado projeta cortes, negativo quando projeta alta). DI1 disponível desde jan/2026. Fonte: dados abertos do BCB (<code>coletor_bcb.py</code>, a cada 20 min no pregão).</p>
   </div>
 </main>
 
@@ -261,7 +275,8 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
         ],
         axes: [
           { stroke: css("--muted"), grid: { stroke: css("--grid"), width: 1 }, ticks: { stroke: css("--grid"), width: 1 },
-            ...(o.xCat ? { splits: () => o.xCat.map((_, i) => i), values: (u, sp) => sp.map(i => o.xCat[i] ?? "") }
+            ...(o.xCat ? { splits: () => o.xCat.map((_, i) => i).filter(i => i % (o.xPasso || 1) === 0),
+                           values: (u, sp) => sp.map(i => o.xCat[i] ?? "") }
               : o.tempo === false ? { values: (u, sp) => sp.map(v => fmt(v, 0)) }
               : { values: (u, sp) => sp.map(v => hora(v).slice(0, 5)) }) },
           { stroke: css("--muted"), grid: { stroke: css("--grid"), width: 1 }, ticks: { stroke: css("--grid"), width: 1 },
@@ -507,6 +522,63 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
     }
   }
 
+  // ---------- liquidez (leiloes do BC)
+  async function carregarBC() {
+    try {
+      const d = await (await fetch("/api/liquidez-bc")).json();
+      if (!d || d.vazio) {
+        $("#bc-sub").textContent = "sem dados (rode coletor_bcb.py)";
+        $("#tiles-bc").innerHTML = '<div class="vazio">Aguardando coleta dos leilões do BC</div>';
+        return;
+      }
+      const br = s => s ? new Date(s + "T00:00:00").toLocaleDateString("pt-BR") : "–";
+      const t = d.tomador, c = d.c1047;
+      $("#bc-sub").textContent = `Tomador de ${br(t.data)}` + (c ? ` · 1047 de ${br(c.data)}` : "");
+      const sinal = v => v == null ? "–" : (v > 0 ? "+" : "") + fmt(v, 1);
+      const zCls = t.z60 == null ? "" : Math.abs(t.z60) >= 2 ? "critical" : Math.abs(t.z60) >= 1 ? "warning" : "good";
+      const tiles = [
+        `<div class="card tile"><div class="rot">Tomador · volume absorvido</div>
+          <div class="val">R$ ${fmt(t.volume_bi, 1)} bi</div>
+          <div class="det">${sinal(t.var_bi)} bi no dia · média 60 pregões R$ ${fmt(t.media60_bi, 0)} bi
+          <br><span class="${zCls}">z-score 60d ${t.z60 == null ? "–" : fmt(t.z60, 2)}</span>${t.prazo_dc > 1 ? ` · ${t.prazo_dc} dias corridos` : ""}${t.n_leiloes > 1 ? ` · ${t.n_leiloes} leilões no dia` : ""}</div></div>`,
+        `<div class="card tile"><div class="rot">Tomador · taxa vs meta − 0,10</div>
+          <div class="val">${fmt(t.taxa, 2)}% a.a.</div>
+          <div class="det">meta ${fmt(t.meta, 2)}% · desvio <span class="${t.desvio_bps ? "critical" : "good"}">${t.desvio_bps == null ? "–" : sinal(t.desvio_bps) + " bps"}</span>
+          ${t.desvio_bps ? "<br><span class='critical'>BC mudou a taxa do overnight</span>" : ""}</div></div>`,
+      ];
+      if (c) {
+        const flag = c.minima30 ? `<br><span class="critical">mínima de 30 dias (antes ${fmt(c.min30, 2)})</span>`
+          : c.maxima30 ? `<br><span class="warning">máxima de 30 dias (antes ${fmt(c.max30, 2)})</span>` : "";
+        tiles.push(`<div class="card tile"><div class="rot">1047 · ${c.prazo_dc} dias · taxa de corte</div>
+          <div class="val">${fmt(c.pct_selic, 2)}% da Selic</div>
+          <div class="det">≈ ${fmt(c.efetiva_aa, 2)}% a.a. (${sinal(c.spread_bps)} bps vs over ${fmt(c.over, 2)}%)
+          <br>DI até ${br(c.retorno)}: ${c.di_retorno == null ? "–" : fmt(c.di_retorno, 2) + "% a.a."} · spread
+          <span class="${c.spread_di_bps == null ? "" : c.spread_di_bps < 0 ? "warning" : "good"}">${c.spread_di_bps == null ? "–" : sinal(c.spread_di_bps) + " bps"}</span>
+          <br>R$ ${fmt(c.volume_bi, 2)} bi aceitos · percentil ${c.pctil == null ? "–" : fmt(c.pctil, 0)} de ${c.n_hist} leilões${flag}</div></div>`);
+      }
+      $("#tiles-bc").innerHTML = tiles.join("");
+      const rot = s => s.slice(8, 10) + "/" + s.slice(5, 7);
+      const st = d.serie_tomador || [];
+      grafico("g-bc-tomador", st.map((_, i) => i), [{ nome: "R$ bi", v: st.map(x => x.volume_bi) }],
+        { tempo: false, xCat: st.map(x => rot(x.data)), xPasso: 20, nomeX: "dia", dec: 1 });
+      const s47 = d.serie_1047 || [];
+      grafico("g-bc-1047", s47.map((_, i) => i), [
+        { nome: "91 dias", v: s47.map(x => x.prazo_dc < 150 ? x.pct_selic : null) },
+        { nome: "182 dias", v: s47.map(x => x.prazo_dc >= 150 ? x.pct_selic : null) }],
+        { tempo: false, xCat: s47.map(x => rot(x.data)), xPasso: 20, nomeX: "dia", dec: 2, pontos: true });
+      const xi = s47.map((_, i) => i), cat = { tempo: false, xCat: s47.map(x => rot(x.data)), xPasso: 20, nomeX: "dia" };
+      grafico("g-bc-di", xi, [
+        { nome: "1047 efetiva", v: s47.map(x => x.efetiva) },
+        { nome: "DI no vencimento", v: s47.map(x => x.di) },
+        { nome: "Selic over", v: s47.map(x => x.over), slot: 2 }], { ...cat, dec: 2 });
+      grafico("g-bc-spread", xi, [{ nome: "1047 − DI (bps)", v: s47.map(x => x.spread_di_bps) }],
+        { ...cat, dec: 0, zero: true, pontos: true });
+    } catch (e) {
+      $("#bc-sub").textContent = "erro ao carregar";
+      $("#tiles-bc").innerHTML = `<div class="vazio">Erro: ${e.message}</div>`;
+    }
+  }
+
   // ---------- wyckoff
   async function carregarWyckoff() {
     try {
@@ -651,6 +723,8 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
   setInterval(carregarInflacao, 600000);  // curva diaria: basta recarregar a cada 10 min
   carregarTesouro();
   setInterval(carregarTesouro, 600000);  // taxas do Tesouro: recarregar a cada 10 min
+  carregarBC();
+  setInterval(carregarBC, 600000);  // leiloes do BC: o coletor busca a cada 20 min
   carregarWyckoff();
   setInterval(carregarWyckoff, 600000);  // curva diaria: basta recarregar a cada 10 min
 })();

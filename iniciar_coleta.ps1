@@ -14,6 +14,8 @@ $coletas = [ordered]@{
     'VIX'           = @('VIX', '--db', 'dados/book.db', '--script', 'coletor_vix.py')
     # saldo de agressao calculado pelo Profit (RTD); so grava com o Profit aberto e logado
     'PROFIT'        = @('PROFIT', '--db', 'dados/book.db', '--script', 'coletor_profit_rtd.py')
+    # leiloes de compromissadas do BC (Tomador 09:00, 1047 12:00-12:30) e Selic: busca a cada 20 min
+    'BCB'           = @('BCB', '--db', 'dados/book.db', '--script', 'coletor_bcb.py')
     # desativado em 19/10/2026: so gravava o VIX e exigia o IB Gateway logado todo dia (coletor_ibkr.py segue no repo)
     # 'IBKR'        = @('IBKR', '--db', 'dados/book.db', '--script', 'coletor_ibkr.py')
     # agressao por minuto de 12 acoes + WDO (variaveis para estimar o fluxo estrangeiro; coletor_agressao.py)

@@ -8,7 +8,8 @@ GET /api/dados?janela=<segundos|pregao>  -> JSON com status das coletas, WIN/BOV
 GET /api/inflacao                         -> curva de inflacao implicita ANBIMA (coletor_anbima.py) e NTN-B.
 GET /api/tesouro-breakeven                -> inflacao implicita do Tesouro Direto (Prefixado x IPCA+) 
                                            com expectativas do Focus.
-GET /api/wyckoff?ativo=WIN&tf=60min       -> fase/eventos Wyckoff objetivos (wyckoff.py) das ultimas barras fechadas.
+GET /api/liquidez-bc                     -> leiloes de compromissadas do BC (coletor_bcb.py): Tomador e 1047.
+GET /api/wyckoff?ativo=WIN&tf=60min      -> fase/eventos Wyckoff objetivos (wyckoff.py) das ultimas barras fechadas.
 Todos os ts sao hora do servidor MT5 (Brasilia) codificada como epoch "UTC", como no banco.
 """
 import argparse
@@ -568,6 +569,89 @@ def tesouro_breakeven(db_path):
         con.close()
 
 
+DI_LEILAO = ("DI1F27", "DI1F28", "DI1F29", "DI1F31", "DI1F33", "DI1F35")
+
+
+def di_no_retorno(con, dia, retorno, over):
+    """DI interpolado (flat-forward, curvas.py) na data de recompra de uma compromissada, com a curva das 12:30 do
+    dia do leilao (ultima barra de 1 min ou cotacao ao vivo ate o fim das propostas) e a Selic over como vertice
+    de 1 dia util. None se nao houver DI1 no dia (as barras de DI comecam em jan/2026)."""
+    a = int(datetime.fromisoformat(f"{dia} 09:00").replace(tzinfo=timezone.utc).timestamp() * 1000)
+    b = a + int(3.5 * 3600_000)  # 12:30
+    prazos, taxas = [], []
+    for sym in DI_LEILAO:
+        r = (con.execute("SELECT close FROM barras_1m WHERE symbol=? AND ts_ms BETWEEN ? AND ? ORDER BY ts_ms DESC "
+                         "LIMIT 1", (sym, a, b)).fetchone() or
+             con.execute("SELECT mid FROM macro_cotacoes WHERE symbol=? AND ts_ms BETWEEN ? AND ? ORDER BY ts_ms DESC "
+                         "LIMIT 1", (sym, a, b)).fetchone())
+        if r and r[0]:
+            prazos.append(curvas.du(date.fromisoformat(dia), curvas.vencimento(sym)))
+            taxas.append(r[0])
+    if not taxas:
+        return None
+    if over:
+        prazos.append(1)
+        taxas.append(over)
+    return curvas.interp_flat_forward(prazos, taxas, curvas.du(date.fromisoformat(dia), date.fromisoformat(retorno)))
+
+
+def liquidez_bc(db_path, n=120):
+    """Leiloes de compromissadas do BC (coletor_bcb.py): volume absorvido no Tomador (overnight, so dealers), taxa
+    do Tomador contra a meta - 0,10 e taxa de corte da compromissada 1047 (% da Selic) com a taxa efetiva."""
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE name='bcb_compromissadas'").fetchone():
+            return {"vazio": True}
+        selic = {d: (m, o) for d, m, o in con.execute("SELECT data, meta, over_aa FROM bcb_selic")}
+        # Tomador: soma dos leiloes do dia (as vezes ha extras alem do das 09:00); taxa media ponderada
+        tom = con.execute("SELECT data, sum(volume_mil) / 1e6, sum(taxa_corte * volume_mil) / sum(volume_mil), "
+                          "count(*), max(prazo_dc) FROM bcb_compromissadas WHERE tipo='Tomador' AND volume_mil > 0 "
+                          "GROUP BY data ORDER BY data").fetchall()
+        c47 = con.execute("SELECT data, taxa_corte, volume_mil / 1e6, prazo_dc, percentual_corte, comunicado, "
+                          "data_retorno FROM bcb_compromissadas WHERE tipo LIKE 'Compromissada%' AND volume_mil > 0 "
+                          "AND taxa_corte > 0 ORDER BY data, hora").fetchall()
+        over_em = lambda d: next((selic[x][1] for x in sorted(selic, reverse=True) if x <= d and selic[x][1]), None)
+        # taxa efetiva da 1047 (% a.a.) = percentual aplicado ao fator diario da Selic over, anualizado
+        efetiva = lambda pct, ov: ((1 + ((1 + ov / 100) ** (1 / 252) - 1) * pct / 100) ** 252 - 1) * 100 if ov else None
+        rec = [dict(data=x[0], pct_selic=x[1], prazo_dc=x[3], retorno=x[6], over=over_em(x[0]),
+                    efetiva=efetiva(x[1], over_em(x[0])), di=di_no_retorno(con, x[0], x[6], over_em(x[0])))
+               for x in c47[-n:]]
+    finally:
+        con.close()
+    if not tom:
+        return {"vazio": True}
+    out = {"vazio": False}
+
+    vols = np.array([t[1] for t in tom])
+    d, vol, taxa, nl, prazo = tom[-1]
+    base = vols[-61:-1]  # 60 pregoes anteriores
+    meta = selic.get(d, (None, None))[0]
+    out["tomador"] = dict(
+        data=d, volume_bi=vol, var_bi=vol - vols[-2] if len(vols) > 1 else None, n_leiloes=nl, prazo_dc=prazo,
+        z60=float((vol - base.mean()) / base.std()) if len(base) >= 20 and base.std() > 0 else None,
+        media60_bi=float(base.mean()) if len(base) else None, taxa=taxa, meta=meta,
+        desvio_bps=round((taxa - (meta - 0.10)) * 100, 1) if meta is not None else None)
+    out["serie_tomador"] = [dict(data=t[0], volume_bi=t[1]) for t in tom[-n:]]
+
+    if c47:
+        d, pct, vol, prazo, rateio, com, retorno = c47[-1]
+        ult = rec[-1]
+        over, ef, di = ult["over"], ult["efetiva"], ult["di"]
+        lim = (date.fromisoformat(d) - timedelta(days=30)).isoformat()
+        ant30 = [x[1] for x in c47[:-1] if x[0] >= lim and x[3] == prazo]
+        hist = [x[1] for x in c47[-251:-1] if x[3] == prazo]
+        out["c1047"] = dict(
+            data=d, pct_selic=pct, volume_bi=vol, prazo_dc=prazo, rateio=rateio or None, comunicado=com,
+            over=over, efetiva_aa=ef, spread_bps=(ef - over) * 100 if ef is not None else None, retorno=retorno,
+            di_retorno=di, spread_di_bps=(ef - di) * 100 if ef is not None and di is not None else None,
+            min30=min(ant30) if ant30 else None, max30=max(ant30) if ant30 else None,
+            minima30=bool(ant30) and pct < min(ant30), maxima30=bool(ant30) and pct > max(ant30),
+            pctil=float(np.mean(np.array(hist) < pct) * 100) if hist else None, n_hist=len(hist))
+        out["serie_1047"] = [dict(r, spread_di_bps=(r["efetiva"] - r["di"]) * 100
+                                  if r["efetiva"] is not None and r["di"] is not None else None) for r in rec]
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(AQUI / "dados" / "book.db"))
@@ -626,6 +710,14 @@ def main():
                     if fonte not in (None, "manual", "b3"):
                         return self.enviar(400, b'{"erro":"fonte invalida (manual|b3)"}', "application/json")
                     r = posicao_aberta(app.db, fonte=fonte)
+                    self.enviar(200, json.dumps(json_limpo(r), ensure_ascii=False).encode(),
+                                "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
+            elif u.path == "/api/liquidez-bc":
+                try:
+                    r = liquidez_bc(app.db)
                     self.enviar(200, json.dumps(json_limpo(r), ensure_ascii=False).encode(),
                                 "application/json; charset=utf-8")
                 except Exception as e:
