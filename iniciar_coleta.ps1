@@ -12,6 +12,8 @@ $coletas = [ordered]@{
     'MACRO'         = @('MACRO', '--db', 'dados/book.db', '--script', 'coletor_macro.py')
     # VIX (CBOE, atrasado ~15 min) pela cotacao publica da Cboe, sem login; substitui o coletor da IBKR
     'VIX'           = @('VIX', '--db', 'dados/book.db', '--script', 'coletor_vix.py')
+    # saldo de agressao calculado pelo Profit (RTD); so grava com o Profit aberto e logado
+    'PROFIT'        = @('PROFIT', '--db', 'dados/book.db', '--script', 'coletor_profit_rtd.py')
     # desativado em 19/10/2026: so gravava o VIX e exigia o IB Gateway logado todo dia (coletor_ibkr.py segue no repo)
     # 'IBKR'        = @('IBKR', '--db', 'dados/book.db', '--script', 'coletor_ibkr.py')
     # agressao por minuto de 12 acoes + WDO (variaveis para estimar o fluxo estrangeiro; coletor_agressao.py)
