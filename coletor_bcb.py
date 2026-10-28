@@ -123,7 +123,8 @@ def main():
                 return 1
         if fim is None:
             return 0
-        if time.time() + INTERVALO_S >= fim:
+        if time.time() + INTERVALO_S >= fim:  # espera o fim da janela: sair antes faz o supervisor relancar
+            time.sleep(max(0.0, fim - time.time()))  # a cada ~10 s e martelar a API do BC
             return 0
         time.sleep(INTERVALO_S)
         desde = date.today() - timedelta(days=10)

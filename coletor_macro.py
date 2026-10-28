@@ -35,6 +35,12 @@ ATIVOS = {
     "domestico": ["ITUB4", "BBAS3", "SMAL11", "IND$"],
 }
 
+# Precos (nao taxas) com spread acima de 2% do mid gravam o ultimo negocio como mid. Em 28/10/2026 o BEWZ39 ficou
+# com ask 65,38 contra bid 59,89 apos o fechamento e o mid "subiu" 4%; o spread normal dos precos fica abaixo de 1%
+# (p99,9 de 1,5% no BEWZ39). DI1/DAP ficam fora: sao taxas e o DAP tem spread relativo largo de rotina (mediana 0,7%).
+TAXAS = ("DI1", "DAP")
+SPREAD_MAX = 0.02
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS macro_cotacoes (
     ts_ms INTEGER NOT NULL, sessao TEXT NOT NULL, symbol TEXT NOT NULL, grupo TEXT,
@@ -84,7 +90,9 @@ def main():
                 if anterior.get(s) == cot:
                     continue
                 anterior[s] = cot
-                mid = (tk.bid + tk.ask) / 2 if tk.bid > 0 and tk.ask > 0 else (tk.last or None)
+                mid = (tk.bid + tk.ask) / 2 if tk.bid > 0 and tk.ask > 0 else None
+                if mid is None or (not s.startswith(TAXAS) and tk.ask - tk.bid > SPREAD_MAX * mid):
+                    mid = tk.last or None  # book vazio ou aberto demais (pos-fechamento): o mid nao e preco
                 pendentes.append((agora, sessao, s, grupo_de[s], tk.bid, tk.ask, tk.last, mid))
             # transacao curta: segurar o lock de escrita entre ciclos travava os outros coletores
             if pendentes:
