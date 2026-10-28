@@ -5,20 +5,25 @@ pregao em features_fluxo_dia. O rotulo (saldo oficial da B3, D+2) fica em fluxo_
 estudo_nowcast.py.
 
 Variaveis:
-  cobertura_acoes          fracao dos minutos 10:00-17:55 em que a cesta foi observada (>= 8 de 12 ativos)
+  cobertura_acoes          fracao dos minutos 10:00-16:55 em que a cesta foi observada (>= 8 de 12 ativos)
   cesta_fin_bruto_mi       compra+venda agressoras da cesta (R$ mi)
   cesta_fin_liq_mi         compra - venda agressoras da cesta (R$ mi)      <- candidata principal
   cesta_liq_pct            liquido / bruto (%)
-  cesta_liq_abertura_mi / _meio_mi / _fim_mi   liquido por faixa (10:00-10:30, 10:30-17:00, 17:00-18:25)
+  cesta_liq_abertura_mi / _meio_mi / _fim_mi   liquido por faixa (10:00-10:30, 10:30-16:00, 16:00-16:55)
   n_acoes_comprando        quantas das 12 tiveram liquido comprador
   lote_medio_fin           R$ medio por negocio da cesta
   wdo_liq_contratos / wdo_liq_pct   agressao liquida do WDO
   wdo_ret_pct, win_ret_pct, win_amp_pct, di29_bps   retorno/amplitude do dia (barras)
   win_vol_rel              volume do WIN no dia / mediana dos 20 pregoes anteriores
-  captura_vol              volume capturado pelo coletor / volume real das barras de 1 min (qualidade; ~0,5)
+  captura_vol              volume capturado pelo coletor / volume real das barras de 1 min (qualidade: ~1 desde a
+                           leitura pelo historico de ticks de 28/10/2026; ~0,6 no polling antigo)
   cesta_fin_liq_esc_mi     liquido da cesta CORRIGIDO pelo volume real: em cada minuto, (compra-venda)/total
-                           capturado x volume da barra (no maximo 4x o capturado) x preco
+                           capturado x volume da barra (no maximo 4x o capturado) x preco. Com captura ~1, igual
+                           ao cesta_fin_liq_mi; ficou para os dias antigos
   cesta_liq_esc_pct        liquido corrigido / volume financeiro real da cesta (%)
+
+A agressao das acoes so conta o pregao continuo (10:00-16:55, ver ticks_trade.py): o leilao de fechamento e o
+after-market nao tem agressor.
 
 Uso: python features_fluxo.py [--db dados/book.db] [--data AAAA-MM-DD]   (sem --data: todos os dias com coleta)
 """
@@ -46,7 +51,7 @@ COLUNAS = ["data", "cobertura_acoes", "cesta_fin_bruto_mi", "cesta_fin_liq_mi", 
            "captura_vol", "cesta_fin_liq_esc_mi", "cesta_liq_esc_pct"]
 MIN_ACOES = 8
 ESCALA_MAX = 4.0  # no maximo 4x o volume capturado (captura minima de 25% no minuto)
-MINUTOS_ESPERADOS = 475  # 10:00 a 17:55
+MINUTOS_ESPERADOS = 415  # 10:00 a 16:55
 
 
 def construir_dia(con, data, barras):
@@ -62,15 +67,15 @@ def construir_dia(con, data, barras):
     wdo = a[a.symbol == "WDO$"]
     acoes["liq"] = (acoes.fin_compra - acoes.fin_venda) / 1e6
     acoes["bruto"] = (acoes.fin_compra + acoes.fin_venda) / 1e6
-    por_min = acoes[(acoes.ts_ms >= h("10:00")) & (acoes.ts_ms < h("17:56"))].groupby("ts_ms").symbol.nunique()
+    por_min = acoes[(acoes.ts_ms >= h("10:00")) & (acoes.ts_ms < h("16:55"))].groupby("ts_ms").symbol.nunique()
     cobertura = float((por_min >= MIN_ACOES).sum() / MINUTOS_ESPERADOS)
     faixa = lambda lo, hi: float(acoes[(acoes.ts_ms >= h(lo)) & (acoes.ts_ms < h(hi))].liq.sum())
     liq, bruto = float(acoes.liq.sum()), float(acoes.bruto.sum())
     por_ativo = acoes.groupby("symbol").liq.sum()
     r = dict(data=data, cobertura_acoes=cobertura, cesta_fin_bruto_mi=bruto, cesta_fin_liq_mi=liq,
              cesta_liq_pct=liq / bruto * 100 if bruto else np.nan,
-             cesta_liq_abertura_mi=faixa("10:00", "10:30"), cesta_liq_meio_mi=faixa("10:30", "17:00"),
-             cesta_liq_fim_mi=faixa("17:00", "18:26"), n_acoes_comprando=int((por_ativo > 0).sum()),
+             cesta_liq_abertura_mi=faixa("10:00", "10:30"), cesta_liq_meio_mi=faixa("10:30", "16:00"),
+             cesta_liq_fim_mi=faixa("16:00", "16:55"), n_acoes_comprando=int((por_ativo > 0).sum()),
              lote_medio_fin=float(acoes.bruto.sum() * 1e6 / acoes.n.sum()) if acoes.n.sum() else np.nan)
     # correcao pelo volume real do minuto (barras de 1 min das mesmas acoes)
     bar = pd.read_sql("SELECT symbol, ts_ms, volume AS vol_barra FROM barras_1m WHERE ts_ms BETWEEN ? AND ? "
@@ -78,9 +83,9 @@ def construir_dia(con, data, barras):
                       con, params=(h("09:00"), h("18:30")))
     m = acoes.merge(bar, on=["symbol", "ts_ms"], how="inner")
     m["tot"] = m.vol_compra + m.vol_venda + m.vol_neutro
-    # so o pregao continuo (ate 17:00): no leilao de fechamento a barra traz volumes enormes e o coletor
+    # so o pregao continuo (ate 16:55): no leilao de fechamento a barra traz volumes enormes e o coletor
     # captura ~5-20%, e poucos negocios decidiam o dia (09/10: +R$ 616 mi so depois das 17:00)
-    m = m[(m.tot > 0) & (m.vol_barra > 0) & (m.ts_ms < h("17:00"))]
+    m = m[(m.tot > 0) & (m.vol_barra > 0) & (m.ts_ms < h("16:55"))]
     if len(m):
         share = (m.vol_compra - m.vol_venda) / m.tot
         # fator de escala limitado: em minutos de leilao/varredura o coletor captura ~0-5% do volume e a proporcao

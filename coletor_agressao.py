@@ -4,23 +4,19 @@ Objetivo: variaveis intradiarias para estimar o fluxo de estrangeiros do dia (ve
 features_fluxo.py). O MT5 nao identifica corretora nem tipo de investidor; o que se mede aqui e a agressao
 (quem bateu no preco: comprador ou vendedor) de uma cesta de blue chips, onde o fluxo estrangeiro se concentra.
 
-Como coleta:
-  - acoes (CESTA): le o ultimo tick (symbol_info_tick) a ~100 Hz e detecta cada negocio novo. Nao usa
-    copy_ticks: na Genial o historico de ticks de acoes trava o terminal por ~100 s. Negocios muito
-    proximos com mesmo preco e volume podem ser contados como um (subestima de leve; ver nota abaixo).
-  - WDO$ (futuro): copy_ticks_range a cada ~1 s, que no MT5 de futuros e exato e nao trava.
-  O lado vem das flags do tick (TICK_FLAG_BUY/SELL). Sem flag, infere pela posicao do preco em relacao ao
-  bid/ask anterior (>= ask compra, <= bid venda); fora disso conta como neutro.
-  O minuto e o do proprio negocio (time_msc do tick), na mesma base de tempo do banco.
+Como coleta: copy_ticks_range de cada ativo a cada ~1 s, a partir do ultimo tick ja lido (ticks_trade.py: cada
+  tick uma vez, mesmo varios no mesmo milissegundo). O lado vem das flags do tick (TICK_FLAG_BUY/SELL); tick com as
+  duas flags, ou a rajada de um leilao (depois de 1 min sem negocio), fica como neutro. Conta so o pregao continuo:
+  acoes de 10:00 a 16:55, WDO a partir de 09:05. O minuto e o do proprio negocio (time_msc do tick).
+  Ate 27/10/2026 as acoes eram lidas so pelo ultimo tick (symbol_info_tick a ~100 Hz): o polling captava ~60% do
+  volume e o saldo saia com sinal trocado (27/10: +R$ 59 mi no coletor, -R$ 154 mi nos ticks, 7 acoes). A primeira
+  leitura do historico de ticks de uma acao no dia pode levar ~100 s; o coletor sobe as 08:55, antes do pregao.
 
 Tabela agressao_1min (uma linha por ativo e minuto, regravada enquanto o minuto esta aberto):
   ts_ms, sessao, symbol, n, vol_compra, vol_venda, vol_neutro, fin_compra, fin_venda, maior_lote, preco
   (vol em acoes; para o WDO, em contratos e sem fin_*; fin em R$)
 
-Nota de calibracao: depois do pregao, comparar com o historico que o proprio terminal guardou
-(copy_ticks_range de 1 ativo, ~100 s) para medir quanto do volume o polling captura.
-
-Uso: python coletor_agressao.py [GRUPO] [SEGUNDOS] [--db dados/book.db] [--intervalo-ms 10]
+Uso: python coletor_agressao.py [GRUPO] [SEGUNDOS] [--db dados/book.db] [--intervalo-ms 1000]
 """
 import argparse
 import time
@@ -29,7 +25,8 @@ from datetime import datetime, timezone
 import MetaTrader5 as mt5
 
 import banco
-from ticks_trade import LeitorTicks, em_pregao_continuo
+from relogio import local_br_ms
+from ticks_trade import INICIO_MS, JANELA_ACOES, LeitorTicks, em_pregao_continuo
 
 CESTA = ["PETR4", "VALE3", "ITUB4", "BBDC4", "BBAS3", "BPAC11", "B3SA3", "PETR3", "PRIO3", "SBSP3", "ABEV3", "WEGE3"]
 FUTURO = "WDO$"
@@ -42,48 +39,10 @@ CREATE TABLE IF NOT EXISTS agressao_1min (
 );
 CREATE INDEX IF NOT EXISTS ix_agr_sym_ts ON agressao_1min (symbol, ts_ms);
 """
-BUY, SELL, LAST = mt5.TICK_FLAG_BUY, mt5.TICK_FLAG_SELL, mt5.TICK_FLAG_LAST
 
 
 def utc(ms):
     return datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
-
-
-class Detector:
-    """Transforma a sequencia de leituras do ultimo tick em negocios (lado, volume, preco, hora)."""
-
-    def __init__(self):
-        self.ms = None
-        self.chave = None          # (ultimo preco, ultimo volume) da leitura anterior
-        self.bid = self.ask = 0.0  # cotacao ANTERIOR ao negocio, para inferir o lado
-        self.preco_ant = None
-
-    def ler(self, tk):
-        negocio = None
-        chave = (tk.last, tk.volume)
-        if self.ms is not None and tk.last > 0:
-            trade_tick = bool(tk.flags & LAST) and (tk.time_msc != self.ms or chave != self.chave)
-            # negocio que escapou: o tick mais recente ja e so de cotacao, mas ultimo/volume mudaram
-            escapou = (not tk.flags & LAST) and chave != self.chave
-            if trade_tick or escapou:
-                lado = self._lado(tk, confiavel=trade_tick)
-                negocio = (lado, float(tk.volume_real or tk.volume), float(tk.last), int(tk.time_msc))
-                self.preco_ant = tk.last
-        self.ms, self.chave = tk.time_msc, chave
-        self.bid, self.ask = tk.bid, tk.ask
-        if negocio is None and self.preco_ant is None and tk.last > 0:
-            self.preco_ant = tk.last
-        return negocio
-
-    def _lado(self, tk, confiavel):
-        compra, venda = bool(tk.flags & BUY), bool(tk.flags & SELL)
-        if confiavel and compra != venda:  # exatamente uma flag. Com as duas (~13% dos negocios de acoes:
-            return "C" if compra else "V"  # lados misturados no mesmo tick), cai na inferencia pelo preco
-        if self.ask > 0 and tk.last >= self.ask:
-            return "C"
-        if self.bid > 0 and tk.last <= self.bid:
-            return "V"
-        return "N"
 
 
 class Minutos:
@@ -130,7 +89,7 @@ def main():
     ap.add_argument("grupo", nargs="?", default="AGRESSAO")
     ap.add_argument("segundos", nargs="?", type=float, default=60.0)
     ap.add_argument("--db", default="dados/book.db")
-    ap.add_argument("--intervalo-ms", type=float, default=10.0)
+    ap.add_argument("--intervalo-ms", type=float, default=1000.0)
     args = ap.parse_args()
 
     db = banco.abrir(args.db, SCHEMA)
@@ -139,39 +98,37 @@ def main():
     for s in CESTA + [FUTURO]:
         mt5.symbol_select(s, True)
     sessao = datetime.now().strftime("%Y%m%d_%H%M%S")
-    det = {s: Detector() for s in CESTA}
     mins = Minutos()
-    tk0 = mt5.symbol_info_tick(FUTURO)
-    leitor_fut = LeitorTicks(tk0.time_msc if tk0 else 0)
-    prox_fut = prox_flush = prox_log = 0.0
+    # comeca no ultimo tick, mas nunca antes de hoje: pedir o historico de ontem de uma acao trava ~100 s
+    hoje = int(local_br_ms()) // 86_400_000 * 86_400_000
+    leitores = {}
+    for s in CESTA + [FUTURO]:
+        tk0 = mt5.symbol_info_tick(s)
+        leitores[s] = LeitorTicks(max(tk0.time_msc if tk0 else 0, hoje))
+    janela = {s: JANELA_ACOES for s in CESTA} | {FUTURO: (INICIO_MS, None)}
+    prox_flush = prox_log = 0.0
     pend, gravadas, negocios = [], 0, 0
     fim = time.time() + args.segundos if args.segundos > 0 else float("inf")
     print(f"Agressao de {len(CESTA)} acoes + {FUTURO} -> {args.db} (sessao {sessao}). Ctrl+C para parar.", flush=True)
 
     try:
         while time.time() < fim:
-            for s in CESTA:
+            for s in CESTA + [FUTURO]:
                 tk = mt5.symbol_info_tick(s)
-                if tk is None:
+                lt = leitores[s]
+                if tk is None or tk.time_msc < lt.ms:
                     continue
-                n = det[s].ler(tk)
-                if n:
-                    mins.somar(s, n[3], n[0], n[1], n[2], com_fin=True)
-                    negocios += 1
-
-            agora = time.time()
-            if agora >= prox_fut:  # futuro: exato via historico de ticks
-                prox_fut = agora + 1.0
-                tk = mt5.symbol_info_tick(FUTURO)
-                if tk is not None and tk.time_msc >= leitor_fut.ms:
-                    ticks = mt5.copy_ticks_range(FUTURO, utc(leitor_fut.ms), utc(int(tk.time_msc) + 1000), mt5.COPY_TICKS_TRADE)
-                    # cada tick uma vez (varios no mesmo ms) e as duas flags = sem agressor, nao compra (ticks_trade.py)
-                    for ms, lado, vol, preco in leitor_fut.novos(ticks):
-                        if not em_pregao_continuo(ms):
-                            continue
-                        mins.somar(FUTURO, ms, lado, vol, preco, com_fin=False)
+                t0 = time.time()
+                ticks = mt5.copy_ticks_range(s, utc(lt.ms), utc(int(tk.time_msc) + 1000), mt5.COPY_TICKS_TRADE)
+                if time.time() - t0 > 5:
+                    print(f"[{datetime.now():%H:%M:%S}] aviso: historico de ticks de {s} levou {time.time() - t0:.0f} s",
+                          flush=True)
+                for ms, lado, vol, preco in lt.novos(ticks):
+                    if em_pregao_continuo(ms, janela[s]):
+                        mins.somar(s, ms, lado, vol, preco, com_fin=s != FUTURO)
                         negocios += 1
 
+            agora = time.time()
             if agora >= prox_flush:
                 prox_flush = agora + 5.0
                 pend += mins.linhas(sessao)
