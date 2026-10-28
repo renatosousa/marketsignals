@@ -29,6 +29,7 @@ import MetaTrader5 as mt5
 import banco
 from conexao import Guarda, janela_de
 from relogio import Relogio
+from ticks_trade import LeitorTicks, em_pregao_continuo
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -187,7 +188,7 @@ def main():
         raise SystemExit(f"nao foi possivel assinar o livro de {sym}: {mt5.last_error()}")
 
     sessao = datetime.now().strftime("%Y%m%d_%H%M%S")
-    ultimo_msc = int(mt5.symbol_info_tick(sym).time_msc)
+    leitor = LeitorTicks(mt5.symbol_info_tick(sym).time_msc)
     relogio = Relogio()
     guarda = Guarda(f"livro {sym}", mt5, *janela_de(sym))  # nao grava dado parado (queda de conexao)
     saldo = 0.0
@@ -209,7 +210,7 @@ def main():
                 time.sleep(1)
                 continue
             if guarda.voltou:  # recuperou de uma queda: descarta os ticks perdidos e o livro velho (sem evento falso)
-                ultimo_msc = int(tk.time_msc)
+                leitor.reiniciar(tk.time_msc)
                 ant_b, ant_a = {}, {}
                 estado_tick = {}
             # relogio do PC + offset p/ o servidor (ver relogio.py). Usar a hora do tick direto
@@ -217,19 +218,16 @@ def main():
             agora = relogio.agora(tk.time_msc)
 
             ticks = None if args.sem_trades or args.trades_tick else \
-                mt5.copy_ticks_range(sym, utc(ultimo_msc), utc(agora + 1000), mt5.COPY_TICKS_TRADE)
+                mt5.copy_ticks_range(sym, utc(leitor.ms), utc(agora + 1000), mt5.COPY_TICKS_TRADE)
             if ticks is not None:
-                for t in ticks:
-                    ms = int(t["time_msc"])
-                    if ms <= ultimo_msc:
+                # cada tick uma vez (varios no mesmo ms), so os de lado definido, e so o pregao continuo (ticks_trade.py)
+                for ms, lado, vol, _ in leitor.novos(ticks):
+                    if not em_pregao_continuo(ms):
                         continue
-                    ultimo_msc = ms
-                    fl = int(t["flags"])
-                    vol = float(t["volume_real"]) or float(t["volume"])
                     acc["n"] += 1
-                    if fl & mt5.TICK_FLAG_BUY:
+                    if lado == "C":
                         acc["comp"] += vol
-                    elif fl & mt5.TICK_FLAG_SELL:
+                    elif lado == "V":
                         acc["vend"] += vol
             elif args.trades_tick:
                 negocio_por_tick(tk, estado_tick, acc)

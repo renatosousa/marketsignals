@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 import MetaTrader5 as mt5
 
 import banco
+from ticks_trade import LeitorTicks, em_pregao_continuo
 
 CESTA = ["PETR4", "VALE3", "ITUB4", "BBDC4", "BBAS3", "BPAC11", "B3SA3", "PETR3", "PRIO3", "SBSP3", "ABEV3", "WEGE3"]
 FUTURO = "WDO$"
@@ -141,7 +142,7 @@ def main():
     det = {s: Detector() for s in CESTA}
     mins = Minutos()
     tk0 = mt5.symbol_info_tick(FUTURO)
-    ultimo_fut = int(tk0.time_msc) if tk0 else 0
+    leitor_fut = LeitorTicks(tk0.time_msc if tk0 else 0)
     prox_fut = prox_flush = prox_log = 0.0
     pend, gravadas, negocios = [], 0, 0
     fim = time.time() + args.segundos if args.segundos > 0 else float("inf")
@@ -162,16 +163,13 @@ def main():
             if agora >= prox_fut:  # futuro: exato via historico de ticks
                 prox_fut = agora + 1.0
                 tk = mt5.symbol_info_tick(FUTURO)
-                if tk is not None and tk.time_msc > ultimo_fut:
-                    ticks = mt5.copy_ticks_range(FUTURO, utc(ultimo_fut), utc(int(tk.time_msc) + 1000), mt5.COPY_TICKS_TRADE)
-                    for t in (ticks if ticks is not None else []):
-                        ms = int(t["time_msc"])
-                        if ms <= ultimo_fut:
+                if tk is not None and tk.time_msc >= leitor_fut.ms:
+                    ticks = mt5.copy_ticks_range(FUTURO, utc(leitor_fut.ms), utc(int(tk.time_msc) + 1000), mt5.COPY_TICKS_TRADE)
+                    # cada tick uma vez (varios no mesmo ms) e as duas flags = sem agressor, nao compra (ticks_trade.py)
+                    for ms, lado, vol, preco in leitor_fut.novos(ticks):
+                        if not em_pregao_continuo(ms):
                             continue
-                        ultimo_fut = ms
-                        fl = int(t["flags"])
-                        lado = "C" if fl & BUY else "V" if fl & SELL else "N"
-                        mins.somar(FUTURO, ms, lado, float(t["volume_real"] or t["volume"]), float(t["last"]), com_fin=False)
+                        mins.somar(FUTURO, ms, lado, vol, preco, com_fin=False)
                         negocios += 1
 
             if agora >= prox_flush:
