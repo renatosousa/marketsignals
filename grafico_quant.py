@@ -21,12 +21,24 @@ O que vai no grafico (tudo causal: cada barra so usa dados ate ela):
   Reversao a media (experim.)   MicrostructureMeanReversion do repo: gap = fech - MME10, AR(1) em 100 barras,
                                 banda theta* = (phi + sqrt(phi^2 + 4 s2)) / 2 (Amaral 2026, nao verificado por nos),
                                 desligada quando a meia-vida passa de 50 barras. Sem validacao fora da amostra.
+  Movimento implicito           abertura +-1 desvio diario pela vol implicita ATM do BOVA11 (opcoes_resumo, vencimento
+                                mais proximo com 5+ dias uteis): sigma_dia = IV / raiz(252), em % do WIN.
+  Posicao em aberto (opcoes)    coberto+travado+descoberto por strike do vencimento mais proximo (B3 ou colagem
+                                manual, a mais recente; dados de D-1), strikes convertidos para pontos do WIN pela
+                                razao WIN/BOVA11 da ultima meia hora. Suporte/resistencia = maior descoberto em
+                                put abaixo / call acima do spot; ima = strike de maior posicao total.
+  GEX, DEX, gamma flip, walls   todos os vencimentos, gama/delta de Black-Scholes com a IV ao vivo de cada strike;
+                                convencao usual (dealer comprado em call, vendido em put) porque a B3 nao diz quem
+                                esta de cada lado. Gamma flip = spot onde o GEX total troca de sinal; call/put wall
+                                1 e 2 = strikes de maior GEX de call/put. Detalhes em gex().
+  Ativos relacionados           velas de BOVA11 (snapshots) e WDO$ (macro_cotacoes) no mesmo tempo grafico.
 Fora: o Flow VWAP PDE do repo converge por construcao para o meio da faixa do dia (o proprio README mostra o limite)
 e a definicao de t e do perfil inicial e ambigua; nao entra ate termos um motivo para acreditar nele.
 
 Todos os ts seguem o banco (Brasilia codificada como epoch "UTC"); os da resposta vao em segundos.
 """
 import math
+import time
 
 import numpy as np
 import pandas as pd
@@ -45,6 +57,13 @@ ATR_N, ATR_BASE, K_BASE, K_MIN, K_MAX, ESTRUT_N, ESTRUT_BUF, MOM_N, MOM_NEUTRO =
 OU_MME, OU_JANELA, OU_MEIA_VIDA_MAX, OU_PHI = 10, 100, 50.0, 2.5 + 5.0
 OFI_SINAL = 5
 PAUSA_OFI_MS = 10_000
+# opcoes: vencimento mais proximo com pelo menos 5 dias uteis (a IV ATM da semana do vencimento e ruidosa),
+# strikes a +-10% do spot, posicao de no maximo 7 dias corridos antes do pregao do grafico
+OPC_DU_MIN, OPC_FAIXA, OPC_DIAS_MAX, OPC_N = 5, 0.10, 7, 3
+RAZAO_JANELA_MS = 30 * 60_000
+GEX_FAIXA, GEX_JANELA_IV_MS, TAXA_PADRAO = 0.25, 60 * 60_000, 0.13
+# ativo -> (tabela, janela do pregao): o BOVA11 so negocia das 10:00 as 17:00 (antes disso o ultimo e o de ontem)
+RELACIONADOS = {"BOVA11": ("snapshots", (H(10), H(17))), "WDO$": ("macro_cotacoes", SESSAO)}
 
 
 def dias_com_dados(con, dia_ms, n, sym=SIMBOLO):
@@ -195,6 +214,203 @@ def reversao_media(b):
     return gap, theta.where(meia <= OU_MEIA_VIDA_MAX), meia
 
 
+def ultimos(con, sym, tabela, dia_ms, janela=SESSAO):
+    """ts_ms e ultimo negocio de outro ativo no pregao (BOVA11 dos snapshots, WDO$ do coletor macro)."""
+    filtro = "bid > 0 AND ask > bid AND last > 0"  # livro cruzado = leilao: o ultimo ainda e o de antes
+    return pd.read_sql(f"SELECT ts_ms, last FROM {tabela} WHERE symbol=? AND ts_ms BETWEEN ? AND ? AND {filtro} "
+                       "ORDER BY ts_ms", con, params=(sym, dia_ms + janela[0], dia_ms + janela[1]))
+
+
+def velas(x, tf_min, t):
+    """OHLC do ultimo negocio por barra, alinhado aos tempos t (ms) do WIN; barra sem negocio vem NaN."""
+    tf = tf_min * 60_000
+    g = x.assign(t=x.ts_ms // tf * tf).groupby("t")["last"]
+    return pd.DataFrame({"o": g.first(), "h": g.max(), "l": g.min(), "c": g.last()}).reindex(t)
+
+
+def razao(win, outro, janela_ms=RAZAO_JANELA_MS):
+    """Mediana de WIN / outro nos segundos em comum da ultima meia hora (converte strike do BOVA11 em pontos)."""
+    if win.empty or outro.empty:
+        return None
+    m = pd.merge_asof(win[["ts_ms", "last"]], outro.rename(columns={"last": "o"}), on="ts_ms",
+                      tolerance=2_000, direction="backward").dropna()
+    m = m[m.ts_ms >= m.ts_ms.iloc[-1] - janela_ms] if len(m) else m
+    return float((m["last"] / m.o).median()) if len(m) else None
+
+
+def _iso(v):
+    """Vencimento em AAAA-MM-DD (a colagem manual traz DD/MM/AAAA; 'nao informado' vira None)."""
+    v = str(v or "")
+    if len(v) == 10 and v[2] == "/":
+        return f"{v[6:]}-{v[3:5]}-{v[:2]}"
+    return v if len(v) == 10 and v[4] == "-" else None
+
+
+def posicoes(con, dia_iso):
+    """Posicao em aberto das opcoes do BOVA11 conhecida no pregao dia_iso, sem olhar o futuro: a mais recente entre
+    o download da B3 (b3_posicoes_series; a posicao do pregao X sai a noite, entao vale de X+1 em diante) e a
+    colagem manual (opcoes_manual_series, vale do dia da colagem em diante). A idade fica para quem chama.
+    -> dict(fonte, ref, series=DataFrame[venc, tipo, strike, oi, descoberto, iv]) ou None"""
+    cands = []
+    try:
+        r = con.execute("SELECT max(sessao) FROM b3_posicoes_series WHERE subjacente='BOVA11' AND sessao < ?",
+                        (dia_iso,)).fetchone()[0]
+        if r:
+            cands.append(("b3", r, "SELECT vencimento, tipo, strike, coberto, travado, descoberto, vol_impl_pct iv "
+                                   "FROM b3_posicoes_series WHERE subjacente='BOVA11' AND sessao=?", r))
+    except Exception:  # tabela ainda nao criada (posicoes_b3_csv.py nunca rodou)
+        pass
+    r = con.execute("SELECT max(capturado_em) FROM opcoes_manual_series WHERE subjacente='BOVA11' "
+                    "AND substr(capturado_em, 1, 10) <= ?", (dia_iso,)).fetchone()[0]
+    if r:
+        cands.append(("manual", r[:10], "SELECT vencimento, tipo, strike, coberto, travado, descoberto, "
+                                        "vol_impl_pct iv FROM opcoes_manual_series WHERE subjacente='BOVA11' "
+                                        "AND capturado_em=?", r))
+    if not cands:
+        return None
+    fonte, ref, sql, chave = max(cands, key=lambda x: x[1])
+    s = pd.read_sql(sql, con, params=(chave,))
+    s["venc"] = s.vencimento.map(_iso)
+    s["oi"] = s[["coberto", "travado", "descoberto"]].sum(axis=1, min_count=1)
+    s = s[s.venc.notna() & (s.venc >= dia_iso) & (s.oi > 0) & s.tipo.isin(["C", "P"])]
+    return dict(fonte=fonte, ref=ref,
+                series=s[["venc", "tipo", "strike", "oi", "descoberto", "iv"]].reset_index(drop=True))
+
+
+def em_pontos(k, k_win):
+    return round(float(k) * k_win / 5) * 5  # WIN anda de 5 em 5
+
+
+def niveis_opcoes(pos, spot, k_win, n=OPC_N, faixa=OPC_FAIXA):
+    """Posicao em aberto por strike do vencimento mais proximo (strikes a +-faixa do spot).
+    -> dict(fonte, ref, vencimento, razao, strikes=[dict(k, pts, call, put)], suporte, resistencia, ima) ou None"""
+    if not pos or not spot or not k_win:
+        return None
+    s = pos["series"]
+    s = s[s.strike.between(spot * (1 - faixa), spot * (1 + faixa))]
+    if s.empty:
+        return None
+    s = s[s.venc == s.venc.min()]
+    tab = s.pivot_table(index="strike", columns="tipo", values=["oi", "descoberto"], aggfunc="sum").fillna(0.0)
+    col = lambda campo, tipo: tab[(campo, tipo)] if (campo, tipo) in tab else pd.Series(0.0, tab.index)
+    call, put = col("oi", "C"), col("oi", "P")
+    pts = lambda k: em_pontos(k, k_win)
+    topo = lambda x: [dict(k=float(k), pts=pts(k), qtd=float(v)) for k, v in x[x > 0].nlargest(n).items()]
+    desc_p, desc_c = col("descoberto", "P"), col("descoberto", "C")
+    return dict(fonte=pos["fonte"], ref=pos["ref"], vencimento=s.venc.iloc[0], razao=round(k_win, 3),
+                strikes=[dict(k=float(k), pts=pts(k), call=float(call[k]), put=float(put[k])) for k in tab.index],
+                suporte=topo(desc_p[desc_p.index <= spot]), resistencia=topo(desc_c[desc_c.index >= spot]),
+                ima=pts((call + put).idxmax()))
+
+
+_normal_cdf = np.frompyfunc(lambda x: 0.5 * (1 + math.erf(x / math.sqrt(2))), 1, 1)
+
+
+def bs_gama_delta(call, s, k, t, r, iv):
+    """Gama e delta de Black-Scholes, vetorizados (s pode ser uma coluna para varrer uma grade de spots)."""
+    d1 = (np.log(s / k) + (r + iv * iv / 2) * t) / (iv * np.sqrt(t))
+    gama = np.exp(-d1 * d1 / 2) / math.sqrt(2 * math.pi) / (s * iv * np.sqrt(t))
+    nd1 = np.asarray(_normal_cdf(d1), dtype=float)
+    return gama, np.where(call, nd1, nd1 - 1.0)
+
+
+def ivs_series(con, dia_ms, desde=None, janela_ms=GEX_JANELA_IV_MS):
+    """Ultima IV de cada serie (venc, tipo, strike) em opcoes_cotacoes: as linhas depois de `desde` (ms) ou, sem ele,
+    a ultima hora de cada vencimento. O dia inteiro tem ~1 milhao de linhas (ler tudo levava 13 s); o Grafico le a
+    ultima hora uma vez e depois so o que chegou. -> DataFrame[venc, tipo, strike, iv, ts_ms]"""
+    # o indice e (subjacente, vencimento, ts_ms): sem o vencimento a consulta varre a tabela, entao os vencimentos do
+    # dia vem do opcoes_resumo (mesmo coletor) e a janela termina na ultima cotacao de cada um
+    vencs = [v for (v,) in con.execute("SELECT DISTINCT vencimento FROM opcoes_resumo WHERE subjacente='BOVA11' "
+                                       "AND ts_ms BETWEEN ? AND ?", (dia_ms, dia_ms + DIA_MS - 1))]
+    partes = []
+    for v in vencs:
+        fim = con.execute("SELECT max(ts_ms) FROM opcoes_cotacoes WHERE subjacente='BOVA11' AND vencimento=? "
+                          "AND ts_ms BETWEEN ? AND ?", (v, dia_ms, dia_ms + DIA_MS - 1)).fetchone()[0]
+        if fim is not None:
+            ini = desde if desde is not None else fim - janela_ms
+            partes.append(pd.read_sql("SELECT ts_ms, vencimento venc, tipo, strike, iv FROM opcoes_cotacoes "
+                                      "WHERE subjacente='BOVA11' AND vencimento=? AND ts_ms > ? AND ts_ms <= ? "
+                                      "AND iv > 0 ORDER BY ts_ms", con, params=(v, ini, fim)))
+    x = pd.concat(partes, ignore_index=True) if partes else pd.DataFrame(columns=["ts_ms", "venc", "tipo", "strike", "iv"])
+    return x.groupby(["venc", "tipo", "strike"]).agg(iv=("iv", "last"), ts_ms=("ts_ms", "last")).reset_index()
+
+
+def ivs_por_strike(series):
+    """Media da IV de call e put em cada (venc, strike): o sorriso usado no GEX."""
+    return series.groupby(["venc", "strike"]).iv.mean().reset_index()
+
+
+def gex(pos, spot, dia_iso, r, ivs=None, iv_padrao=None, n_wall=2, faixa=GEX_FAIXA):
+    """GEX, DEX, gamma flip e walls da posicao em aberto (todos os vencimentos, strikes a +-faixa do spot).
+
+    Convencao usual, porque a B3 nao diz quem esta comprado: os dealers estao comprados nas calls e vendidos nas
+    puts. GEX = soma(gama x OI x S^2 x 1%), call + e put -, em R$ por 1% de movimento do BOVA11. DEX = soma(delta x
+    OI x S), call + e put -: o delta de quem detem as opcoes, em R$. 1 opcao de BOVA11 = 1 cota.
+    IV de cada serie: o sorriso ao vivo do vencimento (opcoes_cotacoes, interpolado no strike; fora da grade, a
+    IV da ponta), senao a IV da propria fonte, senao iv_padrao (ATM). Prazo = dias uteis ate o vencimento / 252,
+    no minimo meio dia. Gamma flip = spot em que o GEX total troca de sinal, recalculando o gama numa grade de
+    spots com as IVs fixas (a troca mais perto do spot). Walls = os n_wall strikes de maior GEX de call / de put.
+    -> dict(gex_total, dex_total, flip, call_walls, put_walls, strikes=[dict(k, gex, dex)]) ou None"""
+    if not pos or not spot:
+        return None
+    s = pos["series"]
+    s = s[s.strike.between(spot * (1 - faixa), spot * (1 + faixa))].copy()
+    if s.empty:
+        return None
+    iv = s.iv.astype(float).copy()
+    if ivs is not None and len(ivs):
+        for v, g in ivs.groupby("venc"):
+            g = g.sort_values("strike")
+            m = (s.venc == v).to_numpy()
+            iv[m] = np.interp(s.strike[m].astype(float), g.strike.astype(float), g.iv.astype(float))
+    iv = iv.where(iv > 0)
+    s["iv_uso"] = iv.fillna(iv_padrao if iv_padrao else iv.median())
+    s = s[s.iv_uso > 0]
+    if s.empty:
+        return None
+    du = np.busday_count(np.datetime64(dia_iso), s.venc.to_numpy(dtype="datetime64[D]"))
+    t = np.maximum(du, 0.5) / 252
+    call = (s.tipo == "C").to_numpy()
+    sinal = np.where(call, 1.0, -1.0)
+    oi, k, v = s.oi.to_numpy(float), s.strike.to_numpy(float), s.iv_uso.to_numpy(float)
+    gama, delta = bs_gama_delta(call, spot, k, t, r, v)
+    s["gex"] = sinal * gama * oi * spot * spot * 0.01
+    s["dex"] = delta * oi * spot
+    por = s.groupby("strike").agg(gex=("gex", "sum"), dex=("dex", "sum"))
+    gex_c = s[call].groupby("strike").gex.sum()
+    gex_p = s[~call].groupby("strike").gex.sum()
+
+    grade = spot * np.linspace(1 - faixa / 2, 1 + faixa / 2, 241)
+    g2, _ = bs_gama_delta(call, grade[:, None], k, t, r, v)
+    total = (sinal * g2 * oi).sum(axis=1) * grade * grade * 0.01
+    troca = np.nonzero(np.diff(np.sign(total)) != 0)[0]
+    flip = None
+    if len(troca):
+        i = troca[np.argmin(np.abs(grade[troca] - spot))]
+        flip = float(grade[i] - total[i] * (grade[i + 1] - grade[i]) / (total[i + 1] - total[i]))
+    wall = lambda x: [dict(k=float(kk), gex=float(x[kk])) for kk in x[x != 0].abs().nlargest(n_wall).index]
+    return dict(gex_total=float(s.gex.sum()), dex_total=float(s.dex.sum()), flip=flip,
+                call_walls=wall(gex_c), put_walls=wall(gex_p),
+                strikes=[dict(k=float(kk), gex=float(x.gex), dex=float(x.dex)) for kk, x in por.iterrows()])
+
+
+def implicito(con, dia_ms, abertura, du_min=OPC_DU_MIN):
+    """Desvio diario implicito pela IV ATM do BOVA11 na ultima leitura do pregao (vencimento mais proximo com
+    du_min+ dias uteis). -> dict(iv, vencimento, sig_dia_pts, sig_venc_pts) ou None"""
+    ts = con.execute("SELECT max(ts_ms) FROM opcoes_resumo WHERE subjacente='BOVA11' AND ts_ms BETWEEN ? AND ? "
+                     "AND atm_iv IS NOT NULL", (dia_ms + SESSAO[0], dia_ms + SESSAO[1])).fetchone()[0]
+    if ts is None:
+        return None
+    r = con.execute("SELECT vencimento, t_anos, atm_iv FROM opcoes_resumo WHERE subjacente='BOVA11' AND ts_ms=? "
+                    "AND atm_iv IS NOT NULL AND t_anos >= ? ORDER BY vencimento LIMIT 1",
+                    (ts, du_min / 252)).fetchone()
+    if not r:
+        return None
+    venc, t_anos, iv = r
+    return dict(iv=iv, vencimento=venc, t=ts / 1000, sig_dia_pts=abertura * iv / math.sqrt(252),
+                sig_venc_pts=abertura * iv * math.sqrt(t_anos))
+
+
 def _lista(x, d=2):
     return [None if v is None or (isinstance(v, float) and not math.isfinite(v)) else round(float(v), d) for v in x]
 
@@ -204,6 +420,8 @@ class Grafico:
 
     def __init__(self):
         self.cache = {}
+        self.cache_opc = {}
+        self.cache_iv = {}
 
     def _seg(self, con, dia_ms, hoje_ms):
         if dia_ms == hoje_ms:
@@ -213,6 +431,37 @@ class Grafico:
                 self.cache.pop(min(self.cache))
             self.cache[dia_ms] = segundos(con, dia_ms)
         return self.cache[dia_ms]
+
+    def _ivs(self, con, dia_ms):
+        """IV de cada serie, acumulada: a ultima hora na primeira chamada do dia, depois so as linhas novas."""
+        ant = self.cache_iv.get(dia_ms)
+        novo = ivs_series(con, dia_ms, desde=int(ant.ts_ms.max()) if ant is not None and len(ant) else None)
+        if ant is not None and len(ant):
+            novo = (pd.concat([ant, novo], ignore_index=True).sort_values("ts_ms")
+                    .groupby(["venc", "tipo", "strike"]).last().reset_index())
+        if dia_ms not in self.cache_iv and len(self.cache_iv) > 12:
+            self.cache_iv.pop(next(iter(self.cache_iv)))
+        self.cache_iv[dia_ms] = novo
+        return novo
+
+    def _opcoes(self, con, dia_ms, hoje_ms):
+        """Posicao em aberto valida no pregao + IVs do fim do pregao (o dia de hoje fica 60 s em cache)."""
+        chave = ("opc", dia_ms)
+        hit = self.cache_opc.get(chave)
+        if hit and (dia_ms != hoje_ms or time.time() - hit[0] < 60):
+            return hit[1]
+        dia_iso = pd.Timestamp(dia_ms, unit="ms").date().isoformat()
+        pos = posicoes(con, dia_iso)
+        velha = pos is not None and (pd.Timestamp(dia_iso) - pd.Timestamp(pos["ref"])).days > OPC_DIAS_MAX
+        ivs = ivs_por_strike(self._ivs(con, dia_ms)) if pos is not None and not velha else None
+        r = con.execute("SELECT taxa FROM opcoes_resumo WHERE subjacente='BOVA11' AND ts_ms <= ? AND taxa > 0 "
+                        "ORDER BY ts_ms DESC LIMIT 1", (dia_ms + DIA_MS,)).fetchone()
+        res = (None if velha else pos, ivs, r[0] if r else TAXA_PADRAO,
+               dict(fonte=pos["fonte"], ref=pos["ref"]) if pos else None)
+        if len(self.cache_opc) > 12:
+            self.cache_opc.pop(next(iter(self.cache_opc)))
+        self.cache_opc[chave] = (time.time(), res)
+        return res
 
     def montar(self, con, dia_ms, tf, hoje_ms):
         dias = dias_com_dados(con, dia_ms, DIAS_COMPOSTO + 1)
@@ -274,6 +523,26 @@ class Grafico:
                             sig_dia_pts=reg[1] / 100 * abertura if reg[1] else None,
                             ref=float(s["last"].iloc[-1]), faixa_1h_pts=reg[2])
 
+        rel, k_win, spot = {}, None, None
+        for sym, (tabela, janela) in RELACIONADOS.items():
+            x = ultimos(con, sym, tabela, dia_ms, janela)
+            if x.empty:
+                continue
+            v = velas(x, tf, b.t)
+            rel[sym.rstrip("$")] = {k: _lista(v[k].to_numpy()) for k in "ohlc"} | dict(base=float(x["last"].iloc[0]))
+            if sym == "BOVA11":
+                k_win, spot = razao(s, x), float(x["last"].iloc[-1])
+        dia_iso = pd.Timestamp(dia_ms, unit="ms").date().isoformat()
+        pos, ivs, taxa, pos_ultima = self._opcoes(con, dia_ms, hoje_ms)
+        opcoes = niveis_opcoes(pos, spot, k_win)
+        impl = implicito(con, dia_ms, abertura)
+        gx = gex(pos, spot, dia_iso, taxa, ivs, impl["iv"] if impl else None) if k_win else None
+        if gx:  # strikes do BOVA11 -> pontos do WIN
+            for w in gx["call_walls"] + gx["put_walls"] + gx["strikes"]:
+                w["pts"] = em_pontos(w["k"], k_win)
+            gx["flip_pts"] = em_pontos(gx["flip"], k_win) if gx["flip"] else None
+            gx["spot"], gx["fonte"], gx["ref"] = spot, pos["fonte"], pos["ref"]
+
         u = len(todas) - 1
         a_ult = float(atr.iloc[u]) if u >= 0 and math.isfinite(atr.iloc[u]) else None
         return dict(
@@ -289,4 +558,6 @@ class Grafico:
             ou_gap=_lista(gap[hoje]), ou_theta=_lista(theta[hoje]), ou_meia_vida=_lista(meia[hoje], 1),
             velas_htf=dict(t=(hb.t / 1000).tolist(), o=_lista(hb.o), h=_lista(hb.h), l=_lista(hb.l), c=_lista(hb.c)),
             perfil=pf, composto=comp, niveis=niveis, projecao=projecao,
+            implicito=impl, opcoes=opcoes, gex=gx, relacionados=rel, opcoes_ultima=pos_ultima,
+            base_win=abertura,
         )

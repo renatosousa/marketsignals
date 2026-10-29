@@ -9,100 +9,224 @@
 <style>
 :root {
   color-scheme: light;
-  --page: #f9f9f7; --surface: #fcfcfb; --border: rgba(11,11,11,0.10);
-  --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
-  --grid: #e1e0d9; --axis: #c3c2b7; --wash: rgba(11,11,11,0.05);
-  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --page: #f9f9f7; --surface: #fcfcfb; --panel: #f3f3f0; --border: rgba(11,11,11,0.10);
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #6f6d68;
+  --grid: #e8e7e1; --axis: #c3c2b7; --wash: rgba(11,11,11,0.05); --wash-2: rgba(11,11,11,0.09);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #6250d6;
   --pos: #2a78d6; --neg: #e34948;
+  --good: #0ca30c; --warn: #fab219; --crit: #d03b3b;
+  --fonte: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) {
     color-scheme: dark;
-    --page: #0d0d0d; --surface: #1a1a19; --border: rgba(255,255,255,0.10);
-    --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
-    --grid: #2c2c2a; --axis: #383835; --wash: rgba(255,255,255,0.06);
-    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --page: #0d0d0d; --surface: #1a1a19; --panel: #141413; --border: rgba(255,255,255,0.10);
+    --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a988f;
+    --grid: #262624; --axis: #383835; --wash: rgba(255,255,255,0.06); --wash-2: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9085e9;
     --pos: #3987e5; --neg: #e66767;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --page: #0d0d0d; --surface: #1a1a19; --border: rgba(255,255,255,0.10);
-  --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
-  --grid: #2c2c2a; --axis: #383835; --wash: rgba(255,255,255,0.06);
-  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --page: #0d0d0d; --surface: #1a1a19; --panel: #141413; --border: rgba(255,255,255,0.10);
+  --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a988f;
+  --grid: #262624; --axis: #383835; --wash: rgba(255,255,255,0.06); --wash-2: rgba(255,255,255,0.10);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9085e9;
   --pos: #3987e5; --neg: #e66767;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--page); color: var(--ink);
-       font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-main { max-width: 1600px; margin: 0 auto; padding: 16px 16px 48px; }
-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 8px; }
-h1 { font-size: 20px; margin: 0; font-weight: 650; }
-a { color: var(--s1); }
-.sub { color: var(--ink-2); font-size: 13px; }
-.filtros { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 8px 0 12px; }
+html { scrollbar-color: var(--axis) transparent; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 var(--fonte); }
+::selection { background: color-mix(in srgb, var(--s1) 28%, transparent); }
+:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; border-radius: 4px; }
+input[type=checkbox] { accent-color: var(--s1); margin: 0; }
+main { max-width: 1680px; margin: 0 auto; padding: 12px 16px 48px; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* cabecalho: ativo, cotacao, estado dos dados */
+.topo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px; padding-bottom: 12px; }
+.topo h1 { font-size: 20px; line-height: 1.2; margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+.cot { display: flex; align-items: baseline; gap: 10px; font-variant-numeric: tabular-nums; }
+.cot b { font-size: 20px; font-weight: 650; }
+.cot span { color: var(--ink-2); font-size: 14px; }
+.cot span.sobe { color: var(--pos); } .cot span.desce { color: var(--neg); }
+.estado { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2);
+          padding: 3px 10px 3px 8px; border-radius: 999px; background: var(--wash); }
+.estado svg { flex: none; }
+.estado[data-estado="vivo"] { color: var(--ink); }
+.topo nav { margin-left: auto; font-size: 13px; }
+a { color: var(--s1); text-underline-offset: 3px; }
+
+/* barra de controles */
+.barra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 0; border-top: 1px solid var(--border); }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
-.seg button { font: inherit; border: 0; background: none; color: var(--ink-2); padding: 6px 12px; cursor: pointer; }
-.seg button:hover { background: var(--wash); }
-.seg button[aria-pressed="true"] { color: var(--ink); font-weight: 650; background: var(--wash); }
-input[type=date] { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; }
+.seg button { font: inherit; font-size: 13px; border: 0; background: none; color: var(--ink-2); padding: 5px 12px; cursor: pointer;
+              transition: background-color 150ms ease-out, color 150ms ease-out; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button:hover { background: var(--wash); color: var(--ink); }
+.seg button[aria-pressed="true"] { color: var(--ink); font-weight: 650; background: var(--wash-2); }
+.seg.pequeno button { padding: 2px 10px; font-size: 12px; }
+input[type=date] { font: inherit; font-size: 13px; color: var(--ink); background: var(--surface); border: 1px solid var(--border);
+                   border-radius: 8px; padding: 4px 8px; }
+button.link { font: inherit; font-size: 13px; background: none; border: 0; padding: 2px 0; color: var(--s1); cursor: pointer;
+              text-decoration: underline; text-underline-offset: 3px; }
+button.link[hidden] { display: none; }
 label.chk { color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-size: 13px; white-space: nowrap; }
-.camadas { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 12px; }
-.camadas i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 10px 6px; min-width: 0; margin-bottom: 10px; }
-.card h3 { font-size: 13px; font-weight: 650; margin: 0 4px; }
-.card .unid { color: var(--muted); font-size: 12px; margin: 2px 4px 6px; }
-.info { font-size: 12px; color: var(--ink-2); margin: 0 4px 6px; font-variant-numeric: tabular-nums; min-height: 18px; }
-.info b { color: var(--ink); font-weight: 600; }
-.lado { display: grid; gap: 10px; grid-template-columns: minmax(0, 1fr) 300px; }
-@media (max-width: 1100px) { .lado { grid-template-columns: 1fr; } }
-table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
-th, td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
-th:first-child, td:first-child { text-align: left; }
-th { color: var(--ink-2); font-weight: 600; }
-.nota { color: var(--muted); font-size: 12px; margin-top: 8px; }
-.nota b { color: var(--ink-2); }
-.erro { color: #d03b3b; font-size: 13px; }
-.vazio { color: var(--muted); font-size: 13px; padding: 40px 0; text-align: center; }
-.esconde { display: none; }
+label.chk:hover { color: var(--ink); }
+
+/* camadas agrupadas pelo que fazem */
+.camadas { display: flex; flex-wrap: wrap; gap: 8px 28px; padding: 10px 12px; margin-bottom: 12px; background: var(--panel);
+           border: 1px solid var(--border); border-radius: 10px; }
+.grupo { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+.grupo > span { font-size: 12px; color: var(--muted); font-weight: 600; min-width: 0; }
+.amostra { flex: none; }
+
+/* paineis */
+.lado { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
+@media (max-width: 1100px) { .lado { grid-template-columns: minmax(0, 1fr); } }
+.pilha { display: grid; gap: 12px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 12px 8px; min-width: 0; }
+.card > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; margin: 0 4px 6px; }
+.card h2 { font-size: 14px; font-weight: 650; margin: 0; }
+.card .unid { color: var(--muted); font-size: 12px; }
+.card > header .seg { margin-left: auto; align-self: center; }
+.leitura { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 12px; color: var(--ink-2); margin: 0 4px 6px;
+           font-variant-numeric: tabular-nums; min-height: 18px; }
+.leitura i { font-style: normal; color: var(--muted); margin-right: 4px; }
+.leitura b { color: var(--ink); font-weight: 600; }
+.grafico { position: relative; }
+.esqueleto { display: grid; place-items: center; color: var(--muted); font-size: 13px; border-radius: 8px;
+             background: linear-gradient(var(--wash), var(--wash)); }
+.vazio { display: grid; place-items: center; gap: 8px; text-align: center; padding: 64px 16px; color: var(--ink-2); }
+.vazio b { color: var(--ink); font-size: 15px; }
+.aviso { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--ink); padding: 8px 12px; margin-bottom: 12px;
+         border-radius: 10px; background: color-mix(in srgb, var(--warn) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
+.aviso[hidden] { display: none; }
+.aviso svg { flex: none; margin-top: 2px; }
+.esconde { display: none !important; }
 .u-legend { display: none; }
+.tag-cursor { position: absolute; pointer-events: none; font: 600 11px/18px var(--fonte); font-variant-numeric: tabular-nums;
+              padding: 0 6px; border-radius: 4px; background: var(--ink-2); color: var(--surface); white-space: nowrap; display: none; }
+
+/* tabelas laterais */
+table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; white-space: normal; }
+thead th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
+.escada { max-height: 560px; overflow: auto; margin: 0 -4px; padding: 0 4px; scrollbar-width: thin; }
+.escada td:first-child { display: flex; align-items: center; gap: 6px; }
+.escada i { flex: none; width: 8px; height: 8px; border-radius: 2px; }
+.escada tr.atual td { background: var(--wash-2); color: var(--ink); font-weight: 650; border-bottom-color: transparent; }
+.escada tr.perto td { color: var(--ink); font-weight: 600; }
+.escada td { color: var(--ink-2); }
+.agora td:first-child { color: var(--ink-2); }
+.agora td:last-child { color: var(--ink); }
+.agora small { display: block; color: var(--muted); font-size: 11px; }
+
+/* metodo */
+details.metodo { margin-top: 16px; color: var(--ink-2); font-size: 13px; }
+details.metodo summary { cursor: pointer; color: var(--ink); font-weight: 600; padding: 6px 0; }
+details.metodo dl { display: grid; grid-template-columns: max-content minmax(0, 72ch); gap: 6px 16px; margin: 8px 0 0; }
+details.metodo dt { color: var(--ink); font-weight: 600; }
+details.metodo dd { margin: 0; }
+@media (max-width: 700px) {
+  details.metodo dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  details.metodo dd { margin-bottom: 8px; }
+  .topo nav { margin-left: 0; }
+  .camadas { display: none; }
+  .camadas.aberto { display: flex; }
+}
+@media (min-width: 701px) { #btn-camadas { display: none; } }
 </style>
 </head>
 <body>
 <main>
-  <header>
-    <h1>WIN · gráfico com indicadores</h1>
-    <span class="sub" id="atualizado">carregando…</span>
-    <a class="sub" href="/">← painel</a>
+  <header class="topo">
+    <h1>WIN</h1>
+    <div class="cot" aria-live="polite"><b id="ult">–</b><span id="var"></span></div>
+    <span class="estado" id="estado" data-estado="carregando"><span>Carregando…</span></span>
+    <nav><a href="/">Voltar ao painel</a></nav>
   </header>
-  <div class="filtros" role="toolbar" aria-label="Filtros">
-    <div class="seg" id="tfs" aria-label="Tempo gráfico">
+
+  <div class="barra" role="toolbar" aria-label="Controles do gráfico">
+    <div class="seg" id="tfs" role="group" aria-label="Tempo gráfico">
       <button data-tf="1">1 min</button><button data-tf="5" aria-pressed="true">5 min</button><button data-tf="15">15 min</button>
     </div>
     <input type="date" id="dia" aria-label="Pregão">
+    <button class="link" id="ir-hoje" hidden>Voltar ao pregão atual</button>
     <label class="chk"><input type="checkbox" id="auto" checked> Atualizar a cada 5 s</label>
-    <span class="erro" id="erro"></span>
+    <button class="link" id="btn-camadas" type="button" aria-expanded="false" aria-controls="camadas">Camadas</button>
   </div>
   <div class="camadas" id="camadas" aria-label="Camadas do gráfico"></div>
 
+  <div class="aviso" id="aviso" role="status" hidden></div>
+
   <div class="lado">
-    <div>
-      <div class="card"><h3>Preço</h3><div class="info" id="info-preco"></div><div id="g-preco"></div></div>
-      <div class="card"><h3>Saldo de agressão acumulado no dia</h3><div class="unid">contratos (compra agressora − venda agressora): nosso pelos ticks do MT5 e o do Profit (RTD), que deixa ~25% do volume sem agressor</div><div class="info" id="info-saldo"></div><div id="g-saldo"></div></div>
-      <div class="card"><h3>OFI · desequilíbrio do topo do livro</h3><div class="unid">soma por barra ÷ profundidade média do topo; barra cheia = acelerando, amarela = desacelerando; linha = média de 5 barras</div><div class="info" id="info-ofi"></div><div id="g-ofi"></div></div>
-      <div class="card" id="card-ou"><h3>Reversão à média · experimental</h3><div class="unid">pontos: fechamento − MME10 e banda ±θ* do modelo OU (some quando a meia-vida passa de 50 barras); sem validação fora da amostra</div><div class="info" id="info-ou"></div><div id="g-ou"></div></div>
+    <div class="pilha">
+      <section class="card" aria-labelledby="h-preco">
+        <header><h2 id="h-preco">Preço</h2><span class="unid" id="unid-preco">pontos · passe o mouse para ler uma barra</span>
+          <div class="seg pequeno esconde" id="perfil-modo" role="group" aria-label="Perfil das opções na borda direita">
+            <button data-m="gex" aria-pressed="true">GEX</button><button data-m="dex">DEX</button>
+          </div></header>
+        <div class="leitura" id="info-preco"></div>
+        <div class="grafico" id="g-preco"><div class="esqueleto" style="height:480px">Carregando o pregão…</div></div>
+      </section>
+      <section class="card painel-dados" aria-labelledby="h-saldo">
+        <header><h2 id="h-saldo">Saldo de agressão</h2><span class="unid">contratos acumulados no dia, compra agressora − venda agressora</span></header>
+        <div class="leitura" id="info-saldo"></div>
+        <div class="grafico" id="g-saldo"></div>
+      </section>
+      <section class="card painel-dados" aria-labelledby="h-ofi">
+        <header><h2 id="h-ofi">OFI</h2><span class="unid">desequilíbrio do topo do livro por barra; cor clara = desacelerando</span></header>
+        <div class="leitura" id="info-ofi"></div>
+        <div class="grafico" id="g-ofi"></div>
+      </section>
+      <section class="card painel-dados" id="card-rel" aria-labelledby="h-rel">
+        <header><h2 id="h-rel">Ativos relacionados</h2><span class="unid" id="unid-rel">variação desde a abertura de cada um, %</span>
+          <div class="seg pequeno" id="rel-modo" role="group" aria-label="Visão">
+            <button data-m="pct" aria-pressed="true">Variação %</button><button data-m="WDO">WDO</button><button data-m="BOVA11">BOVA11</button>
+          </div></header>
+        <div class="leitura" id="info-rel"></div>
+        <div class="grafico" id="g-rel"></div>
+      </section>
+      <section class="card painel-dados" id="card-ou" aria-labelledby="h-ou">
+        <header><h2 id="h-ou">Reversão à média</h2><span class="unid">experimental · fechamento − MME10 e banda ±θ*, em pontos</span></header>
+        <div class="leitura" id="info-ou"></div>
+        <div class="grafico" id="g-ou"></div>
+      </section>
     </div>
-    <div>
-      <div class="card"><h3>Níveis</h3><div class="unid">distância em pontos do último preço</div><div id="tab-niveis"></div></div>
-      <div class="card"><h3>Agora</h3><div id="tab-agora"></div></div>
-    </div>
+    <aside class="pilha">
+      <section class="card" aria-labelledby="h-niveis">
+        <header><h2 id="h-niveis">Níveis</h2><span class="unid">distância do último, pts</span></header>
+        <div class="escada" id="tab-niveis"></div>
+      </section>
+      <section class="card agora" aria-labelledby="h-agora">
+        <header><h2 id="h-agora">Agora</h2></header>
+        <div id="tab-agora"></div>
+      </section>
+    </aside>
   </div>
-  <p class="nota"><b>De onde vem cada camada.</b> Velas, volume e saldo saem dos snapshots de 1 s do coletor (último negócio; máxima/mínima podem perder extremos de menos de 1 s).
-    <b>VWAP ±σ</b>: desvio-padrão do preço ponderado pelo volume desde as 09:00. <b>Perfil</b>: volume agredido por faixa de 25 pts (compra à direita da linha central, venda à esquerda), POC e área de valor de 70%.
-    <b>Zonas de volume</b>: picos do perfil dos 5 pregões anteriores (faixas de 50 pts). <b>Projeção do modelo</b>: abertura ±1 desvio previsto para o dia e último ±1 desvio da próxima hora (o modelo prevê quanto oscila, não a direção; ~2 em 3 horas ficam dentro).
-    <b>Stop ATR dinâmico</b> e <b>velas de tempo maior</b>: indicadores do repositório ntsl-indicator-library (geansm2), reimplementados pelas fórmulas do README; a cor do stop segue o momentum em ATR (azul alta, vermelho baixa, cinza neutro).
-    <b>OFI</b>: Cont, Kukanov e Stoikov (2014) no melhor bid/ask a cada segundo. Nada aqui foi testado como sinal de entrada; são referências de preço e de fluxo.</p>
+
+  <details class="metodo">
+    <summary>Como cada camada é calculada</summary>
+    <dl>
+      <dt>Velas e volume</dt><dd>Snapshots de 1 s do coletor (último negócio). Máxima e mínima podem perder um extremo que durou menos de 1 s.</dd>
+      <dt>VWAP ±σ</dt><dd>Desvio-padrão do preço ponderado pelo volume desde as 09:00.</dd>
+      <dt>Perfil do dia</dt><dd>Volume agredido por faixa de 25 pts, compra à direita da linha central e venda à esquerda; POC e área de valor de 70%.</dd>
+      <dt>Zonas de volume</dt><dd>Picos do perfil dos 5 pregões anteriores, em faixas de 50 pts, e o POC desses dias.</dd>
+      <dt>Modelo de regime</dt><dd>Abertura ±1 desvio previsto para o dia e último ±1 desvio da próxima hora. Prevê quanto oscila, não a direção; cerca de 2 em 3 horas ficam dentro.</dd>
+      <dt>Volatilidade implícita</dt><dd>Abertura ±1 desvio diário pela vol implícita ATM do BOVA11 (IV ÷ √252), no vencimento mais próximo com 5 ou mais dias úteis. É o que o mercado de opções precifica; compare com o modelo.</dd>
+      <dt>GEX e DEX</dt><dd>Posição em aberto das opções do BOVA11 (D-1, da B3 ou da colagem manual) com gama e delta de Black-Scholes pela IV ao vivo de cada strike. GEX = gama × posição × spot² × 1%, em R$ por 1% de movimento; DEX = delta × posição × spot. Convenção usual: os dealers estão comprados nas calls e vendidos nas puts, então call soma e put subtrai. A B3 não informa quem está de cada lado: a convenção é uma hipótese, não um dado.</dd>
+      <dt>Gamma flip e walls</dt><dd>Gamma flip: preço em que o GEX total troca de sinal, recalculando o gama numa grade de preços. Acima dele os dealers estariam comprados em gama (tendem a amortecer o movimento); abaixo, vendidos (tendem a amplificar). Call wall e put wall 1 e 2: os strikes de maior GEX de call e de put. Strikes convertidos para pontos do WIN pela razão WIN/BOVA11 da última meia hora.</dd>
+      <dt>Stop ATR dinâmico</dt><dd>Indicador do repositório ntsl-indicator-library (geansm2), reimplementado pelas fórmulas do README. A cor segue o momentum em ATR: azul alta, vermelho baixa, cinza neutro.</dd>
+      <dt>Velas de tempo maior</dt><dd>15 min sobre o gráfico de 1 min, 60 min sobre os de 5 e 15 min (mesmo repositório).</dd>
+      <dt>Saldo de agressão</dt><dd>O nosso, pelos ticks do MT5, e o do Profit (RTD), que deixa cerca de 25% do volume sem agressor.</dd>
+      <dt>OFI</dt><dd>Cont, Kukanov e Stoikov (2014) no melhor bid/ask a cada segundo, somado por barra e dividido pela profundidade média do topo. Linha = média de 5 barras.</dd>
+      <dt>Reversão à média</dt><dd>Modelo OU do mesmo repositório (Amaral 2026, não verificado). Sem validação fora da amostra.</dd>
+      <dt>Ressalva</dt><dd>Nada aqui foi testado como sinal de entrada; são referências de preço e de fluxo.</dd>
+    </dl>
+  </details>
 </main>
 
 <script>
@@ -110,56 +234,107 @@ th { color: var(--ink-2); font-weight: 600; }
   const $ = s => document.querySelector(s);
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const nf = d => new Intl.NumberFormat("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
+  const nfK = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
   const fmt = (v, d = 0) => v == null ? "–" : nf(d).format(v);
-  const sinal = (v, d = 0) => v == null ? "–" : (v > 0 ? "+" : "") + nf(d).format(v);
+  const sinal = (v, d = 0) => v == null ? "–" : (v > 0 ? "+" : v < 0 ? "−" : "") + nf(d).format(Math.abs(v));
+  const pctTxt = v => v == null ? "–" : sinal(v, 2) + "%";
+  const sinalK = v => v == null ? "–" : (v > 0 ? "+" : v < 0 ? "−" : "") + nfK.format(Math.abs(v));
   const hora = t => new Date(t * 1000).toISOString().slice(11, 16);
-  const alfa = (cor, a) => { const c = cor.replace("#", ""); const n = parseInt(c, 16);
+  const dataBr = s => `${s.slice(8, 10)}/${s.slice(5, 7)}`;
+  const alfa = (cor, a) => { const n = parseInt(cor.replace("#", ""), 16);
     return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
+  const FONTE = css("--fonte");
+  const ICONE = {
+    vivo: c => `<svg width="8" height="8" aria-hidden="true"><circle cx="4" cy="4" r="4" fill="${c}"/></svg>`,
+    aviso: c => `<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5 15 14H1z" fill="none" stroke="${c}" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 6v4M8 11.6v.4" stroke="${c}" stroke-width="1.6" stroke-linecap="round"/></svg>`,
+    parado: c => `<svg width="8" height="8" aria-hidden="true"><circle cx="4" cy="4" r="3.2" fill="none" stroke="${c}" stroke-width="1.6"/></svg>`,
+  };
 
-  // ---------- camadas (persistidas no navegador)
-  const CAMADAS = [
-    ["vwap", "VWAP ±σ", "--s4", true], ["perfil", "Perfil do dia", "--s2", true], ["zonas", "Zonas de volume (5 dias)", "--s3", true],
-    ["anterior", "Níveis do pregão anterior", "--ink-2", true], ["modelo", "Projeção do modelo", "--s3", true],
-    ["stop", "Stop ATR dinâmico", "--pos", true], ["atrproj", "Projeção ±1/2 ATR", "--s2", false],
-    ["htf", "Velas de tempo maior", "--muted", true], ["ou", "Reversão à média (painel)", "--s1", false],
+  // cores lidas uma vez por montagem (getComputedStyle a cada barra pesa no 1 min)
+  const C = {};
+  const cores = () => { for (const k of ["ink", "ink-2", "muted", "grid", "axis", "surface", "s1", "s2", "s3", "s4", "s5", "pos", "neg", "warn"]) C[k] = css("--" + k); };
+
+  // ---------- camadas, agrupadas pelo que fazem (persistidas no navegador)
+  const GRUPOS = [
+    ["Volume", [["perfil", "Perfil do dia", "s2", "area", true], ["vwap", "VWAP ±σ", "s4", "solid", true], ["zonas", "Zonas de 5 dias", "ink-2", "area", true]]],
+    ["Níveis", [["anterior", "Pregão anterior", "ink-2", "dash", true]]],
+    ["Opções", [["gexniv", "Gamma flip e walls", "s5", "solid", true], ["gexperfil", "Perfil GEX/DEX por strike", "s5", "area", true]]],
+    ["Projeções", [["modelo", "Modelo de regime", "s3", "dash", true], ["implicito", "Vol. implícita", "s5", "dash", true], ["atrproj", "±1/2 ATR", "muted", "dot", false]]],
+    ["Indicadores", [["stop", "Stop ATR dinâmico", "pos", "dot", true], ["htf", "Velas de tempo maior", "muted", "box", true]]],
+    ["Painéis", [["rel", "Ativos relacionados", "s3", "solid", true], ["ou", "Reversão à média", "s1", "solid", false]]],
   ];
+  const amostra = (cor, estilo) => {
+    const c = `var(--${cor})`;
+    const d = { solid: "", dash: 'stroke-dasharray="4 3"', dot: 'stroke-dasharray="1.5 2.5" stroke-linecap="round"' }[estilo];
+    const corpo = estilo === "area" ? `<rect x="1" y="1" width="16" height="8" rx="2" fill="${c}" opacity=".35"/>`
+      : estilo === "box" ? `<rect x="1.5" y="1.5" width="15" height="7" fill="none" stroke="${c}" stroke-dasharray="2 2"/>`
+      : `<line x1="1" y1="5" x2="17" y2="5" stroke="${c}" stroke-width="2" ${d}/>`;
+    return `<svg class="amostra" width="18" height="10" aria-hidden="true">${corpo}</svg>`;
+  };
   let ligado = {};
   try { ligado = JSON.parse(localStorage.getItem("grafico-camadas") || "{}"); } catch (e) {}
-  CAMADAS.forEach(([k, , , pad]) => { if (!(k in ligado)) ligado[k] = pad; });
-  $("#camadas").innerHTML = CAMADAS.map(([k, nome, cor]) =>
-    `<label class="chk"><input type="checkbox" data-k="${k}" ${ligado[k] ? "checked" : ""}><i style="background:var(${cor})"></i>${nome}</label>`).join("");
+  for (const [, itens] of GRUPOS) for (const [k, , , , pad] of itens) if (!(k in ligado)) ligado[k] = pad;
+  $("#camadas").innerHTML = GRUPOS.map(([g, itens]) => `<div class="grupo" role="group" aria-label="${g}"><span>${g}</span>` +
+    itens.map(([k, nome, cor, est]) => `<label class="chk"><input type="checkbox" data-k="${k}" ${ligado[k] ? "checked" : ""}>${amostra(cor, est)}${nome}</label>`).join("") +
+    "</div>").join("");
+  const contaCamadas = () => { $("#btn-camadas").textContent = `Camadas (${Object.values(ligado).filter(Boolean).length} ligadas)`; };
+  contaCamadas();
+  $("#btn-camadas").addEventListener("click", e => {
+    const ab = $("#camadas").classList.toggle("aberto"); e.target.setAttribute("aria-expanded", ab);
+  });
   $("#camadas").addEventListener("change", e => {
-    ligado[e.target.dataset.k] = e.target.checked;
+    ligado[e.target.dataset.k] = e.target.checked; contaCamadas();
     try { localStorage.setItem("grafico-camadas", JSON.stringify(ligado)); } catch (er) {}
     desenhar(true);
   });
 
-  let tf = "5", dia = "", D = null, timer = null;
+  let tf = "5", dia = "", D = null, timer = null, relModo = "pct", perfilModo = "gex", ultimoOk = null;
   const G = {};
   window.grafico = { G, dados: () => D };  // inspecao pelo console
 
   // ---------- desenho no canvas (pixels do canvas = css * pxRatio)
   const px = v => v * uPlot.pxRatio;
+  const estreito = () => window.innerWidth <= 700;
+  const gutter = () => (estreito() ? 62 : 124);   // no celular a calha mostra so o valor (o nome esta na tabela de niveis)
   function linhaH(u, y, cor, larg = 1, tracejado = null, x0 = null, x1 = null) {
     const c = u.ctx; c.save(); c.strokeStyle = cor; c.lineWidth = px(larg);
     if (tracejado) c.setLineDash(tracejado.map(px));
     c.beginPath(); c.moveTo(x0 ?? u.bbox.left, y); c.lineTo(x1 ?? u.bbox.left + u.bbox.width, y); c.stroke(); c.restore();
   }
-  function texto(u, s, x, y, cor, alinha = "right") {
-    const c = u.ctx; c.save(); c.font = `${px(11)}px system-ui, sans-serif`; c.textAlign = alinha; c.textBaseline = "bottom";
-    const w = c.measureText(s).width;
-    c.fillStyle = alfa(css("--surface"), 0.85); c.fillRect(alinha === "right" ? x - w - px(2) : x - px(2), y - px(14), w + px(4), px(14));
-    c.fillStyle = cor; c.fillText(s, x, y - px(1)); c.restore();
+  function texto(u, s, x, y, cor, alinha = "left", fundo = null) {
+    const c = u.ctx; c.save(); c.font = `${px(11)}px ${FONTE}`; c.textAlign = alinha; c.textBaseline = "middle";
+    if (fundo) { const w = c.measureText(s).width; c.fillStyle = fundo;
+      c.fillRect(alinha === "left" ? x - px(3) : x - w - px(3), y - px(8), w + px(6), px(16)); }
+    c.fillStyle = cor; c.fillText(s, x, y); c.restore();
   }
   const dentro = (u, y) => y >= u.bbox.top && y <= u.bbox.top + u.bbox.height;
 
+  // rotulos na calha a direita do grafico: nunca se sobrepoem (empilha com 15 px e liga ao nivel por um traco)
+  function rotulosCalha(u, itens, fixo = null) {
+    const c = u.ctx, R = u.bbox.left + u.bbox.width, topo = u.bbox.top + px(8), fundo = u.bbox.top + u.bbox.height - px(8);
+    const h = px(15), lista = itens.filter(r => dentro(u, r.y)).sort((a, b) => a.y - b.y);
+    if (fixo) lista.push({ ...fixo, fixo: true });
+    lista.sort((a, b) => a.y - b.y);
+    for (let i = 0; i < lista.length; i++) { const r = lista[i]; r.yy = r.fixo ? r.y : Math.max(r.y, topo, i ? lista[i - 1].yy + h : -Infinity); }
+    for (let i = lista.length - 1; i >= 0; i--) { const r = lista[i]; if (!r.fixo) r.yy = Math.min(r.yy, i < lista.length - 1 ? lista[i + 1].yy - h : fundo); }
+    c.save();
+    for (const r of lista) {
+      const x = R + px(8);
+      if (r.fixo) { texto(u, r.txt, x, r.yy, C.surface, "left", r.cor); continue; }
+      c.strokeStyle = r.cor; c.lineWidth = px(1); c.beginPath(); c.moveTo(R, r.y); c.lineTo(R + px(3), r.y); c.lineTo(x - px(2), r.yy); c.stroke();
+      c.fillStyle = r.cor; c.fillRect(x, r.yy - px(3), px(6), px(6));
+      texto(u, estreito() && r.curto ? r.curto : r.txt, x + px(10), r.yy, C["ink-2"]);
+    }
+    c.restore();
+  }
+
   function camadaFundo(u) {   // abaixo das velas: zonas, velas de tempo maior, perfil
     if (!D) return;
-    const c = u.ctx, top = u.bbox.top, bot = top + u.bbox.height, L = u.bbox.left, R = L + u.bbox.width;
+    const c = u.ctx, top = u.bbox.top, L = u.bbox.left, R = L + u.bbox.width;
     c.save(); c.beginPath(); c.rect(L, top, u.bbox.width, u.bbox.height); c.clip();
     if (ligado.zonas && D.composto) for (const z of D.composto.hvn) {
       const y1 = u.valToPos(z.hi, "y", true), y0 = u.valToPos(z.lo, "y", true);
-      c.fillStyle = alfa(css("--s3"), 0.12); c.fillRect(L, y1, R - L, y0 - y1);
+      c.fillStyle = alfa(C["ink-2"], 0.08); c.fillRect(L, y1, R - L, y0 - y1);
     }
     if (ligado.htf) {
       const h = D.velas_htf, larg = D.htf * 60;
@@ -167,112 +342,131 @@ th { color: var(--ink-2); font-weight: 600; }
         const x0 = u.valToPos(h.t[i], "x", true), x1 = u.valToPos(h.t[i] + larg, "x", true);
         const yo = u.valToPos(h.o[i], "y", true), yc = u.valToPos(h.c[i], "y", true);
         const yh = u.valToPos(h.h[i], "y", true), yl = u.valToPos(h.l[i], "y", true);
-        const cor = h.c[i] >= h.o[i] ? css("--pos") : css("--neg");
-        c.fillStyle = alfa(cor, 0.07); c.fillRect(x0, Math.min(yo, yc), x1 - x0, Math.abs(yc - yo) || px(1));
-        c.strokeStyle = alfa(cor, 0.35); c.lineWidth = px(1); c.setLineDash([px(3), px(3)]);
+        const cor = h.c[i] >= h.o[i] ? C.pos : C.neg;
+        c.fillStyle = alfa(cor, 0.06); c.fillRect(x0, Math.min(yo, yc), x1 - x0, Math.abs(yc - yo) || px(1));
+        c.strokeStyle = alfa(cor, 0.30); c.lineWidth = px(1); c.setLineDash([px(3), px(3)]);
         c.strokeRect(x0, yh, x1 - x0, yl - yh); c.setLineDash([]);
       }
     }
+    if (ligado.gexperfil && D.gex && D.gex.strikes.length) {   // por strike, da borda direita para dentro
+      const st = D.gex.strikes, campo = perfilModo, larg = u.bbox.width * 0.12;
+      const max = Math.max(...st.map(x => Math.abs(x[campo]))) || 1;
+      const ys = st.map(x => u.valToPos(x.pts, "y", true));
+      const gap = Math.min(...ys.slice(1).map((y, i) => Math.abs(y - ys[i])), px(14));
+      const hh = Math.max(px(2), gap * 0.7);
+      st.forEach((x, i) => {
+        const w = Math.abs(x[campo]) / max * larg; if (!w) return;
+        c.fillStyle = alfa(x[campo] >= 0 ? C.pos : C.neg, 0.38); c.fillRect(R - w, ys[i] - hh / 2, w, hh);
+      });
+      texto(u, campo === "gex" ? "GEX por strike" : "DEX por strike", R - px(6), top + px(10), C.muted, "right");
+    }
     if (ligado.perfil && D.perfil) {
-      const p = D.perfil, larg = u.bbox.width * 0.16, meio = L + larg;
+      const p = D.perfil, larg = u.bbox.width * 0.14, meio = L + larg;
       const max = Math.max(...p.vc, ...p.vv) || 1;
       for (let i = 0; i < p.preco.length; i++) {
         const y0 = u.valToPos(p.preco[i] - p.passo / 2, "y", true), y1 = u.valToPos(p.preco[i] + p.passo / 2, "y", true);
         const hh = Math.max(px(1), y0 - y1 - px(1));
-        c.fillStyle = alfa(css("--pos"), 0.30); c.fillRect(meio, y1, p.vc[i] / max * larg, hh);
-        c.fillStyle = alfa(css("--neg"), 0.30); c.fillRect(meio - p.vv[i] / max * larg, y1, p.vv[i] / max * larg, hh);
+        const dentroVA = p.preco[i] >= p.val && p.preco[i] <= p.vah;
+        c.fillStyle = alfa(C.pos, dentroVA ? 0.32 : 0.16); c.fillRect(meio, y1, p.vc[i] / max * larg, hh);
+        c.fillStyle = alfa(C.neg, dentroVA ? 0.32 : 0.16); c.fillRect(meio - p.vv[i] / max * larg, y1, p.vv[i] / max * larg, hh);
       }
     }
     c.restore();
   }
 
-  function camadaTopo(u) {    // velas, stops, niveis, projecoes
-    if (!D) return;
-    const c = u.ctx, L = u.bbox.left, R = L + u.bbox.width, n = D.t.length;
-    c.save(); c.beginPath(); c.rect(L, u.bbox.top, u.bbox.width, u.bbox.height); c.clip();
-    const passo = D.tf * 60, w = Math.max(px(1), (u.valToPos(D.t[0] + passo, "x", true) - u.valToPos(D.t[0], "x", true)) * 0.7);
-    for (let i = 0; i < n; i++) {
-      if (D.o[i] == null) continue;
-      const x = u.valToPos(D.t[i] + passo / 2, "x", true);
-      const yo = u.valToPos(D.o[i], "y", true), yc = u.valToPos(D.c[i], "y", true);
-      const cor = D.c[i] >= D.o[i] ? css("--pos") : css("--neg");
+  function velasEm(u, t, o, h, l, cl, passo) {
+    const c = u.ctx, w = Math.max(px(1), (u.valToPos(t[0] + passo, "x", true) - u.valToPos(t[0], "x", true)) * 0.66);
+    for (let i = 0; i < t.length; i++) {
+      if (o[i] == null) continue;
+      const x = Math.round(u.valToPos(t[i] + passo / 2, "x", true));
+      const yo = u.valToPos(o[i], "y", true), yc = u.valToPos(cl[i], "y", true);
+      const cor = cl[i] >= o[i] ? C.pos : C.neg;
       c.strokeStyle = cor; c.lineWidth = px(1);
-      c.beginPath(); c.moveTo(x, u.valToPos(D.h[i], "y", true)); c.lineTo(x, u.valToPos(D.l[i], "y", true)); c.stroke();
+      c.beginPath(); c.moveTo(x, u.valToPos(h[i], "y", true)); c.lineTo(x, u.valToPos(l[i], "y", true)); c.stroke();
       c.fillStyle = cor; c.fillRect(x - w / 2, Math.min(yo, yc), w, Math.max(px(1), Math.abs(yc - yo)));
     }
+  }
+
+  function camadaTopo(u) {    // velas, stops, niveis, projecoes; rotulos na calha
+    if (!D) return;
+    const c = u.ctx, L = u.bbox.left, R = L + u.bbox.width, n = D.t.length, passo = D.tf * 60, rot = [];
+    const nivel = (nome, v, cor, larg, tr, x0 = null) => {
+      const y = u.valToPos(v, "y", true); if (!dentro(u, y)) return;
+      linhaH(u, y, cor, larg, tr, x0); rot.push({ y, cor, txt: `${nome} ${fmt(v)}`, curto: fmt(v) });
+    };
+    c.save(); c.beginPath(); c.rect(L, u.bbox.top, u.bbox.width, u.bbox.height); c.clip();
+    velasEm(u, D.t, D.o, D.h, D.l, D.c, passo);
     if (ligado.stop) {
-      const corM = m => m == null ? null : m > 0.10 ? css("--pos") : m < -0.10 ? css("--neg") : css("--muted");
+      const corM = m => m == null ? null : m > 0.10 ? C.pos : m < -0.10 ? C.neg : C.muted;
+      c.lineWidth = px(1.5); c.setLineDash([px(1), px(3)]); c.lineCap = "round";
       for (const k of ["stop_c", "stop_v"]) for (let i = 1; i < n; i++) {
         const a = D[k][i - 1], b = D[k][i]; if (a == null || b == null) continue;
-        c.strokeStyle = corM(D.mom[i]); c.lineWidth = px(1.5); c.setLineDash([px(1), px(3)]);
+        c.strokeStyle = corM(D.mom[i]);
         c.beginPath(); c.moveTo(u.valToPos(D.t[i - 1] + passo / 2, "x", true), u.valToPos(a, "y", true));
         c.lineTo(u.valToPos(D.t[i] + passo / 2, "x", true), u.valToPos(b, "y", true)); c.stroke();
       }
-      c.setLineDash([]);
+      c.setLineDash([]); c.lineCap = "butt";
     }
     const xAgora = u.valToPos(D.t[n - 1] + passo, "x", true);
     if (ligado.modelo && D.projecao) {
       const p = D.projecao;
-      if (p.sig_dia_pts) for (const [k, v] of [["+1σ dia", p.abertura + p.sig_dia_pts], ["−1σ dia", p.abertura - p.sig_dia_pts]]) {
-        const y = u.valToPos(v, "y", true); if (!dentro(u, y)) continue;
-        linhaH(u, y, css("--s3"), 1.5, [6, 4]); texto(u, `${k} ${fmt(v)}`, R - px(4), y, css("--ink-2"));
-      }
-      if (p.faixa_1h_pts && live()) {
+      if (p.sig_dia_pts) for (const [k, s] of [["Modelo +1σ", 1], ["Modelo −1σ", -1]]) nivel(k, p.abertura + s * p.sig_dia_pts, C.s3, 1.5, [6, 4]);
+      if (p.faixa_1h_pts && aoVivo()) {
         const x1 = Math.min(R, u.valToPos(D.t[n - 1] + passo + 3600, "x", true));
         const ya = u.valToPos(p.ref + p.faixa_1h_pts, "y", true), yb = u.valToPos(p.ref - p.faixa_1h_pts, "y", true);
-        c.fillStyle = alfa(css("--s3"), 0.10); c.fillRect(xAgora, ya, x1 - xAgora, yb - ya);
-        c.strokeStyle = css("--s3"); c.lineWidth = px(1); c.strokeRect(xAgora, ya, x1 - xAgora, yb - ya);
-        texto(u, `próx. hora ±${fmt(p.faixa_1h_pts)}`, xAgora + px(4), ya, css("--ink-2"), "left");
+        c.fillStyle = alfa(C.s3, 0.10); c.fillRect(xAgora, ya, x1 - xAgora, yb - ya);
+        c.strokeStyle = C.s3; c.lineWidth = px(1); c.strokeRect(xAgora, ya, x1 - xAgora, yb - ya);
+        texto(u, `próxima hora ±${fmt(p.faixa_1h_pts)}`, xAgora + px(6), ya + px(10), C["ink-2"]);
       }
+    }
+    if (ligado.implicito && D.implicito) {
+      const s = D.implicito.sig_dia_pts, a = D.niveis[0].preco;
+      nivel("IV +1σ", a + s, C.s5, 1.5, [6, 4]); nivel("IV −1σ", a - s, C.s5, 1.5, [6, 4]);
     }
     if (ligado.atrproj && D.atr_proj) {
       const a = D.atr_proj;
-      for (const m of [-2, -1, 1, 2]) {
-        const y = u.valToPos(a.ref + m * a.atr, "y", true); if (!dentro(u, y)) continue;
-        linhaH(u, y, css("--s2"), 1, [2, 3], xAgora, R);
-        texto(u, `${m > 0 ? "+" : "−"}${Math.abs(m)} ATR`, R - px(4), y, css("--ink-2"));
-      }
+      for (const m of [-2, -1, 1, 2]) nivel(`${m > 0 ? "+" : "−"}${Math.abs(m)} ATR`, a.ref + m * a.atr, C.muted, 1, [2, 3], xAgora);
     }
-    // niveis horizontais com rotulo a direita; rotulos a menos de 13 px de outro sao omitidos (a linha fica)
-    const nv = [];
-    if (ligado.perfil && D.perfil) nv.push(["POC", D.perfil.poc, css("--s2"), 2, null], ["VAH", D.perfil.vah, css("--s2"), 1, [4, 3]], ["VAL", D.perfil.val, css("--s2"), 1, [4, 3]]);
-    if (ligado.anterior) for (const x of D.niveis) if (x.grupo === "anterior") nv.push([x.nome, x.preco, css("--ink-2"), 1, [2, 4]]);
-    if (ligado.zonas && D.composto) nv.push([`POC ${D.composto.dias}d`, D.composto.poc, css("--s3"), 1.5, null]);
-    nv.push(["Abertura", D.niveis[0].preco, css("--muted"), 1, [1, 3]]);
-    let ultY = [];
-    for (const [nome, v, cor, larg, tr] of nv.sort((a, b) => b[1] - a[1])) {
-      const y = u.valToPos(v, "y", true); if (!dentro(u, y)) continue;
-      linhaH(u, y, cor, larg, tr);
-      if (ultY.every(z => Math.abs(z - y) > px(13))) { texto(u, `${nome} ${fmt(v)}`, R - px(4), y, css("--ink-2")); ultY.push(y); }
+    if (ligado.gexniv && D.gex) {
+      const g = D.gex;
+      g.call_walls.forEach((w, k) => nivel(`Call wall ${k + 1}`, w.pts, C.s5, k ? 1 : 2, null));
+      g.put_walls.forEach((w, k) => nivel(`Put wall ${k + 1}`, w.pts, C.s5, k ? 1 : 2, [4, 3]));
+      if (g.flip_pts) nivel("Gamma flip", g.flip_pts, C.s5, 2, [10, 4]);
     }
-    // ultimo preco
+    if (ligado.vwap) { const k = ultimoDe(D.vwap); if (k >= 0) rot.push({ y: u.valToPos(D.vwap[k], "y", true), cor: C.s4, txt: `VWAP ${fmt(D.vwap[k])}`, curto: fmt(D.vwap[k]) }); }
+    if (ligado.perfil && D.perfil) { nivel("POC", D.perfil.poc, C.s2, 2, null); nivel("VAH", D.perfil.vah, C.s2, 1, [4, 3]); nivel("VAL", D.perfil.val, C.s2, 1, [4, 3]); }
+    if (ligado.anterior) for (const x of D.niveis) if (x.grupo === "anterior") nivel(x.nome, x.preco, alfa(C["ink-2"], 0.8), 1, [2, 4]);
+    if (ligado.zonas && D.composto) nivel(`POC ${D.composto.dias}d`, D.composto.poc, C["ink-2"], 1.5, null);
+    nivel("Abertura", D.niveis[0].preco, C.muted, 1, [1, 3]);
     const yu = u.valToPos(D.c[n - 1], "y", true);
-    linhaH(u, yu, css("--ink"), 1, [1, 2]);
+    linhaH(u, yu, C.ink, 1, [1, 2]);
     c.restore();
+    rotulosCalha(u, rot, dentro(u, yu) ? { y: yu, cor: C.ink, txt: fmt(D.c[n - 1]) } : null);
   }
 
   const live = () => !dia;
+  const aoVivo = () => live() && hoje();   // pregao de hoje: so entao ha "proxima hora" a projetar
 
-  // ---------- paineis
-  const altura = id => ({ "g-preco": Math.max(380, Math.min(620, window.innerHeight * 0.62)) })[id] || 150;
+  // ---------- paineis (todos com a mesma calha a direita: o tempo fica alinhado entre eles)
+  const altura = id => ({ "g-preco": Math.max(380, Math.min(640, window.innerHeight * 0.64)) })[id] || 150;
   const largura = id => document.getElementById(id).clientWidth || 600;
   function xRange() {
     const passo = D.tf * 60, fim = D.t[D.t.length - 1] + passo;
-    const extra = live() && (ligado.modelo || ligado.atrproj) ? Math.max(3600, (fim - D.t[0]) * 0.12) : passo * 2;
+    const extra = aoVivo() && (ligado.modelo || ligado.atrproj) ? Math.max(3600, (fim - D.t[0]) * 0.12) : passo * 2;
     return [D.t[0], fim + extra];
   }
   function yRangePreco() {
     let lo = Infinity, hi = -Infinity;
     const inc = v => { if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); } };
     D.l.forEach(inc); D.h.forEach(inc);
-    if (ligado.modelo && D.projecao && D.projecao.faixa_1h_pts && live()) { inc(D.projecao.ref + D.projecao.faixa_1h_pts); inc(D.projecao.ref - D.projecao.faixa_1h_pts); }
+    if (ligado.modelo && D.projecao && D.projecao.faixa_1h_pts && aoVivo()) { inc(D.projecao.ref + D.projecao.faixa_1h_pts); inc(D.projecao.ref - D.projecao.faixa_1h_pts); }
     const pad = (hi - lo) * 0.05 || 50;
     return [lo - pad, hi + pad];
   }
-  const eixos = (fy) => [
-    { stroke: css("--muted"), grid: { stroke: css("--grid"), width: 1 }, ticks: { stroke: css("--grid"), width: 1 },
+  const eixos = fy => [
+    { stroke: C.muted, font: `11px ${FONTE}`, grid: { stroke: C.grid, width: 1 }, ticks: { stroke: C.grid, width: 1, size: 4 },
       values: (u, sp) => sp.map(v => hora(v)) },
-    { stroke: css("--muted"), grid: { stroke: css("--grid"), width: 1 }, ticks: { stroke: css("--grid"), width: 1 }, size: 72,
+    { stroke: C.muted, font: `11px ${FONTE}`, grid: { stroke: C.grid, width: 1 }, ticks: { show: false }, size: 64, gap: 6,
       values: (u, sp) => sp.map(fy) },
   ];
 
@@ -280,7 +474,7 @@ th { color: var(--ink-2); font-weight: 600; }
     const el = document.getElementById(id);
     el.innerHTML = "";
     const opts = {
-      width: largura(id), height: altura(id),
+      width: largura(id), height: altura(id), padding: [8, gutter(), 0, 0],
       tzDate: ts => uPlot.tzDate(new Date(ts * 1e3), "Etc/UTC"),
       scales: { x: { time: true, range: () => xRange() }, ...(extra.scales || {}) },
       cursor: { sync: { key: "graf" }, points: { show: false }, drag: { x: false, y: false } },
@@ -289,127 +483,268 @@ th { color: var(--ink-2); font-weight: 600; }
       axes: eixos(extra.fy || (v => fmt(v))),
       hooks: extra.hooks || {},
     };
-    return new uPlot(opts, dadosDe(id), el);
+    const u = new uPlot(opts, dadosDe(id), el);
+    if (extra.tag) {   // valor sob o cursor na calha
+      const tag = document.createElement("div"); tag.className = "tag-cursor"; u.root.querySelector(".u-wrap").appendChild(tag);
+      u.hooks.setCursor = [...(u.hooks.setCursor || []), uu => {
+        const t = uu.cursor.top;
+        if (t == null || t < 0) { tag.style.display = "none"; return; }
+        const pr = uPlot.pxRatio;
+        tag.style.display = "block"; tag.textContent = extra.tag(uu.posToVal(t, "y"));
+        tag.style.left = (uu.bbox.left + uu.bbox.width) / pr + 6 + "px"; tag.style.top = uu.bbox.top / pr + t - 9 + "px";
+      }];
+    }
+    return u;
   }
 
   const vazio = () => D.t.map(() => null);
   const soma = (a, b, k) => a.map((v, i) => v == null || b[i] == null ? null : v + k * b[i]);
+  const xs = () => D.t.map(t => t + D.tf * 30);
+  const pct = (a, base) => a.map(v => v == null || !base ? null : (v / base - 1) * 100);
   function dadosDe(id) {
     if (id === "g-preco") {
       const sd = D.vwap_sd, on = ligado.vwap;
-      return [D.t.map(t => t + D.tf * 30), D.c, on ? D.vwap : vazio(), on ? soma(D.vwap, sd, 1) : vazio(), on ? soma(D.vwap, sd, -1) : vazio(),
+      return [xs(), D.c, on ? D.vwap : vazio(), on ? soma(D.vwap, sd, 1) : vazio(), on ? soma(D.vwap, sd, -1) : vazio(),
               on ? soma(D.vwap, sd, 2) : vazio(), on ? soma(D.vwap, sd, -2) : vazio()];
     }
-    const xs = D.t.map(t => t + D.tf * 30);
-    if (id === "g-saldo") return [xs, D.saldo, D.saldo_profit];
-    if (id === "g-ofi") return [xs, D.ofi, D.ofi_sinal];
-    if (id === "g-ou") return [xs, D.ou_gap, D.ou_theta, D.ou_theta.map(v => v == null ? null : -v)];
+    if (id === "g-saldo") return [xs(), D.saldo, D.saldo_profit];
+    if (id === "g-ofi") return [xs(), D.ofi, D.ofi_sinal];
+    if (id === "g-ou") return [xs(), D.ou_gap, D.ou_theta, D.ou_theta.map(v => v == null ? null : -v)];
+    if (id === "g-rel") {
+      const R = D.relacionados || {};
+      if (relModo === "pct") return [xs(), pct(D.c, D.base_win), R.BOVA11 ? pct(R.BOVA11.c, R.BOVA11.base) : vazio(), R.WDO ? pct(R.WDO.c, R.WDO.base) : vazio()];
+      const a = R[relModo]; return [xs(), a ? a.c : vazio(), a ? a.h : vazio(), a ? a.l : vazio()];
+    }
   }
 
   function barrasOfi(u) {
     const c = u.ctx, n = D.t.length, passo = D.tf * 60;
-    const w = Math.max(px(1), (u.valToPos(D.t[0] + passo, "x", true) - u.valToPos(D.t[0], "x", true)) * 0.7);
+    const w = Math.max(px(1), (u.valToPos(D.t[0] + passo, "x", true) - u.valToPos(D.t[0], "x", true)) * 0.66);
     const y0 = u.valToPos(0, "y", true);
     c.save(); c.beginPath(); c.rect(u.bbox.left, u.bbox.top, u.bbox.width, u.bbox.height); c.clip();
     for (let i = 0; i < n; i++) {
       const v = D.ofi[i]; if (v == null) continue;
       const ant = D.ofi[i - 1] ?? 0, acel = v > 0 ? v > ant : v < ant;
-      c.fillStyle = !acel ? css("--s4") : v > 0 ? css("--pos") : css("--neg");
-      const x = u.valToPos(D.t[i] + passo / 2, "x", true), y = u.valToPos(v, "y", true);
+      c.fillStyle = alfa(v > 0 ? C.pos : C.neg, acel ? 0.9 : 0.35);
+      const x = Math.round(u.valToPos(D.t[i] + passo / 2, "x", true)), y = u.valToPos(v, "y", true);
       c.fillRect(x - w / 2, Math.min(y, y0), w, Math.max(px(1), Math.abs(y - y0)));
     }
     c.restore();
-    linhaH(u, y0, css("--axis"));
+    linhaH(u, y0, C.axis);
   }
-  const zero = u => { const y = u.valToPos(0, "y", true); if (dentro(u, y)) linhaH(u, y, css("--axis")); };
+  const zero = u => { const y = u.valToPos(0, "y", true); if (dentro(u, y)) linhaH(u, y, C.axis); };
+  const ultimoDe = a => { for (let i = a.length - 1; i >= 0; i--) if (a[i] != null) return i; return -1; };
+  // rotulo direto do ultimo valor de cada serie na calha
+  // rotulo direto do ultimo valor de cada serie na calha; nomes[k] = [nome, cor] da serie k + 1 do grafico
+  const rotulosSeries = (nomes, f) => u => rotulosCalha(u, nomes.map(([nome, cor], k) => [nome, cor, u.data[k + 1]])
+    .filter(([, , a]) => a && ultimoDe(a) >= 0).map(([nome, cor, a]) => {
+      const i = ultimoDe(a); return { y: u.valToPos(a[i], "y", true), cor, txt: `${nome} ${f(a[i])}`, curto: f(a[i]) }; }));
 
   function montar() {
     for (const k in G) { G[k].destroy(); delete G[k]; }
-    const s1 = css("--s1"), s2 = css("--s2"), s4 = css("--s4");
+    cores();
+    const s4 = C.s4;
     G.preco = criar("g-preco", [
       { label: "Fech.", stroke: "transparent", width: 0 },
       { label: "VWAP", stroke: s4, width: 2 },
       { label: "+1σ", stroke: alfa(s4, 0.7), width: 1, dash: [6, 4] }, { label: "−1σ", stroke: alfa(s4, 0.7), width: 1, dash: [6, 4] },
       { label: "+2σ", stroke: alfa(s4, 0.45), width: 1, dash: [2, 4] }, { label: "−2σ", stroke: alfa(s4, 0.45), width: 1, dash: [2, 4] },
-    ], { scales: { y: { range: () => yRangePreco() } }, hooks: { drawAxes: [camadaFundo], draw: [camadaTopo], setCursor: [infoPreco] } });
-    G.saldo = criar("g-saldo", [{ label: "Nosso", stroke: s1, width: 2, spanGaps: true }, { label: "Profit", stroke: s2, width: 2, spanGaps: true }],
-      { hooks: { draw: [zero], setCursor: [u => info(u, "#info-saldo", [["Nosso", D.saldo, 0], ["Profit", D.saldo_profit, 0]])] } });
-    G.ofi = criar("g-ofi", [{ label: "OFI", stroke: "transparent", width: 0 }, { label: "Média 5", stroke: css("--ink-2"), width: 1.5 }],
-      { fy: v => fmt(v, 0), hooks: { draw: [barrasOfi], setCursor: [u => info(u, "#info-ofi", [["OFI", D.ofi, 1], ["Média 5", D.ofi_sinal, 1], ["OFI acumulado (contratos)", D.ofi_acum, 0]])] } });
+    ], { scales: { y: { range: () => yRangePreco() } }, tag: v => fmt(v),
+         hooks: { drawAxes: [camadaFundo], draw: [camadaTopo], setCursor: [infoPreco] } });
+    G.saldo = criar("g-saldo", [{ label: "Nosso", stroke: C.s1, width: 2, spanGaps: true }, { label: "Profit", stroke: C.s2, width: 2, spanGaps: true }],
+      { fy: v => sinalK(v), tag: v => sinalK(v), hooks: { draw: [zero, rotulosSeries([["Nosso", C.s1], ["Profit", C.s2]], sinalK)],
+        setCursor: [u => info(u, "#info-saldo", [["Nosso", D.saldo, sinal], ["Profit", D.saldo_profit, sinal]])] } });
+    G.ofi = criar("g-ofi", [{ label: "OFI", stroke: "transparent", width: 0 }, { label: "Média 5", stroke: C["ink-2"], width: 1.5 }],
+      { fy: v => fmt(v, 1), tag: v => fmt(v, 2), hooks: { draw: [barrasOfi],
+        setCursor: [u => info(u, "#info-ofi", [["OFI", D.ofi, v => sinal(v, 2)], ["Média 5", D.ofi_sinal, v => sinal(v, 2)], ["Acumulado", D.ofi_acum, sinalK]])] } });
     $("#card-ou").classList.toggle("esconde", !ligado.ou);
-    if (ligado.ou) G.ou = criar("g-ou", [{ label: "Gap", stroke: s1, width: 2 },
-      { label: "+θ*", stroke: css("--muted"), width: 1, dash: [6, 4] }, { label: "−θ*", stroke: css("--muted"), width: 1, dash: [6, 4] }],
-      { hooks: { draw: [zero], setCursor: [u => info(u, "#info-ou", [["Gap", D.ou_gap, 0], ["θ*", D.ou_theta, 0], ["Meia-vida (barras)", D.ou_meia_vida, 1]])] } });
+    if (ligado.ou) G.ou = criar("g-ou", [{ label: "Gap", stroke: C.s1, width: 2 },
+      { label: "+θ*", stroke: C.muted, width: 1, dash: [6, 4] }, { label: "−θ*", stroke: C.muted, width: 1, dash: [6, 4] }],
+      { tag: v => sinal(v), hooks: { draw: [zero], setCursor: [u => info(u, "#info-ou", [["Gap", D.ou_gap, sinal], ["θ*", D.ou_theta, fmt], ["Meia-vida", D.ou_meia_vida, v => fmt(v, 1) + " barras"]])] } });
+    montarRel();
+  }
+
+  function montarRel() {
+    if (G.rel) { G.rel.destroy(); delete G.rel; }
+    const R = D.relacionados || {}, tem = ligado.rel && Object.keys(R).length;
+    $("#card-rel").classList.toggle("esconde", !tem);
+    if (!tem) return;
+    $("#unid-rel").textContent = relModo === "pct" ? "variação desde a abertura de cada um, %" : relModo === "WDO" ? "dólar futuro, pontos" : "ETF do Ibovespa, R$";
+    if (relModo === "pct") {
+      G.rel = criar("g-rel", [{ label: "WIN", stroke: C.ink, width: 2, spanGaps: true }, { label: "BOVA11", stroke: C.s3, width: 2, spanGaps: true },
+        { label: "WDO", stroke: C.s2, width: 2, spanGaps: true }],
+        { fy: v => sinal(v, 1) + "%", tag: pctTxt, hooks: { draw: [zero, rotulosSeries([["WIN", C.ink], ["BOVA11", C.s3], ["WDO", C.s2]], pctTxt)],
+          setCursor: [u => info(u, "#info-rel", ["WIN", "BOVA11", "WDO"].map((n, k) => [n, u.data[k + 1], pctTxt]))] } });
+    } else {
+      const A = () => (D.relacionados || {})[relModo], dd = relModo === "BOVA11" ? 2 : 1;
+      G.rel = criar("g-rel", [{ label: "Fech.", stroke: "transparent", width: 0 }, { stroke: "transparent", width: 0 }, { stroke: "transparent", width: 0 }],
+        { fy: v => fmt(v, dd), tag: v => fmt(v, dd), hooks: { draw: [u => { const a = A(); if (!a) return; const c = u.ctx; c.save(); c.beginPath();
+            c.rect(u.bbox.left, u.bbox.top, u.bbox.width, u.bbox.height); c.clip(); velasEm(u, D.t, a.o, a.h, a.l, a.c, D.tf * 60); c.restore();
+            const i = ultimoDe(a.c); if (i >= 0) rotulosCalha(u, [], { y: u.valToPos(a.c[i], "y", true), cor: C.ink, txt: fmt(a.c[i], dd) }); }],
+          setCursor: [u => { const i = idxCursor(u), a = A(); $("#info-rel").innerHTML = a ? `<span><b>${hora(D.t[i])}</b></span>` +
+            [["Abert.", a.o], ["Máx.", a.h], ["Mín.", a.l], ["Fech.", a.c]].map(([n, s]) => `<span><i>${n}</i>${fmt(s[i], dd)}</span>`).join("") : ""; }] } });
+    }
   }
 
   function idxCursor(u) { const i = u.cursor.idx; return i == null ? D.t.length - 1 : i; }
+  const kv = (n, v) => `<span><i>${n}</i>${v}</span>`;
   function infoPreco(u) {
     const i = idxCursor(u), cor = D.c[i] >= D.o[i] ? "var(--pos)" : "var(--neg)";
-    $("#info-preco").innerHTML = `<b>${hora(D.t[i])}</b> · A ${fmt(D.o[i])} · M ${fmt(D.h[i])} · m ${fmt(D.l[i])} · F <b style="color:${cor}">${fmt(D.c[i])}</b>` +
-      ` · vol ${fmt(D.v[i])} · Δ ${sinal(D.delta[i])} · VWAP ${fmt(D.vwap[i])} (σ ${fmt(D.vwap_sd[i])})` +
-      ` · stop C ${fmt(D.stop_c[i])} / V ${fmt(D.stop_v[i])} · momentum ${sinal(D.mom[i], 2)} ATR`;
+    $("#info-preco").innerHTML = `<span><b>${hora(D.t[i])}</b></span>` + kv("Abert.", fmt(D.o[i])) + kv("Máx.", fmt(D.h[i])) + kv("Mín.", fmt(D.l[i])) +
+      kv("Fech.", `<b style="color:${cor}">${fmt(D.c[i])}</b>`) + kv("Volume", fmt(D.v[i])) + kv("Saldo", sinal(D.delta[i])) +
+      (ligado.vwap ? kv("VWAP", `${fmt(D.vwap[i])} ±${fmt(D.vwap_sd[i])}`) : "") +
+      (ligado.stop ? kv("Stops", `${fmt(D.stop_c[i])} / ${fmt(D.stop_v[i])}`) + kv("Momentum", sinal(D.mom[i], 2) + " ATR") : "");
   }
   function info(u, sel, campos) {
     const i = idxCursor(u);
-    $(sel).innerHTML = `<b>${hora(D.t[i])}</b> · ` + campos.map(([n, a, d]) => `${n} <b>${sinal(a[i], d)}</b>`).join(" · ");
+    $(sel).innerHTML = `<span><b>${hora(D.t[i])}</b></span>` + campos.map(([n, a, f]) => kv(n, `<b>${f(a[i])}</b>`)).join("");
   }
 
+  // ---------- tabelas laterais
   function tabelas() {
-    const ult = D.c[D.c.length - 1];
-    const lin = [...D.niveis];
-    if (D.perfil) lin.push({ nome: "POC do dia", preco: D.perfil.poc }, { nome: "VAH do dia", preco: D.perfil.vah }, { nome: "VAL do dia", preco: D.perfil.val });
-    const i = D.t.length - 1;
-    if (D.vwap[i] != null) lin.push({ nome: "VWAP", preco: D.vwap[i] }, { nome: "VWAP +1σ", preco: D.vwap[i] + D.vwap_sd[i] }, { nome: "VWAP −1σ", preco: D.vwap[i] - D.vwap_sd[i] });
-    if (D.stop_c[i] != null) lin.push({ nome: "Stop compra (ATR)", preco: D.stop_c[i] }, { nome: "Stop venda (ATR)", preco: D.stop_v[i] });
-    const p = D.projecao;
-    if (p && p.sig_dia_pts) lin.push({ nome: "Abertura +1σ dia", preco: p.abertura + p.sig_dia_pts }, { nome: "Abertura −1σ dia", preco: p.abertura - p.sig_dia_pts });
-    if (D.composto) D.composto.hvn.forEach((z, k) => lin.push({ nome: `Zona ${D.composto.dias}d #${k + 1} (${fmt(z.vol_rel, 1)}× média)`, preco: z.pico }));
-    lin.sort((a, b) => b.preco - a.preco);
-    $("#tab-niveis").innerHTML = `<table><thead><tr><th>nível</th><th>preço</th><th>dist.</th></tr></thead><tbody>` +
-      lin.map(n => `<tr><td>${n.nome}</td><td>${fmt(n.preco)}</td><td>${sinal(n.preco - ult)}</td></tr>`).join("") + "</tbody></table>";
+    const n = D.t.length, i = n - 1, ult = D.c[i];
+    const lin = [];
+    const add = (nome, preco, cor) => { if (preco != null) lin.push({ nome, preco, cor }); };
+    for (const x of D.niveis) add(x.nome, x.preco, x.grupo === "dia" ? "muted" : "ink-2");
+    if (D.perfil) { add("POC do dia", D.perfil.poc, "s2"); add("VAH do dia", D.perfil.vah, "s2"); add("VAL do dia", D.perfil.val, "s2"); }
+    if (D.vwap[i] != null) { add("VWAP", D.vwap[i], "s4"); add("VWAP +1σ", D.vwap[i] + D.vwap_sd[i], "s4"); add("VWAP −1σ", D.vwap[i] - D.vwap_sd[i], "s4"); }
+    if (D.stop_c[i] != null) { add("Stop compra (ATR)", D.stop_c[i], "pos"); add("Stop venda (ATR)", D.stop_v[i], "neg"); }
+    const p = D.projecao, a = D.niveis[0].preco;
+    if (p && p.sig_dia_pts) { add("Modelo +1σ dia", p.abertura + p.sig_dia_pts, "s3"); add("Modelo −1σ dia", p.abertura - p.sig_dia_pts, "s3"); }
+    if (D.implicito) { add("IV +1σ dia", a + D.implicito.sig_dia_pts, "s5"); add("IV −1σ dia", a - D.implicito.sig_dia_pts, "s5"); }
+    if (D.gex) {
+      const g = D.gex, rs = v => "R$ " + nfK.format(Math.abs(v));
+      g.call_walls.forEach((w, k) => add(`Call wall ${k + 1} · ${fmt(w.k)} · ${rs(w.gex)}`, w.pts, "s5"));
+      g.put_walls.forEach((w, k) => add(`Put wall ${k + 1} · ${fmt(w.k)} · ${rs(w.gex)}`, w.pts, "s5"));
+      if (g.flip_pts) add(`Gamma flip · ${fmt(g.flip, 2)}`, g.flip_pts, "s5");
+    }
+    if (D.opcoes) add("Ímã · maior posição do venc. mais próximo", D.opcoes.ima, "s5");
+    if (D.composto) D.composto.hvn.forEach((z, k) => add(`Zona 5d #${k + 1} · ${fmt(z.vol_rel, 1)}× média`, z.pico, "ink-2"));
+    lin.sort((x, y) => y.preco - x.preco);
+    const k = lin.findIndex(x => x.preco < ult), pos = k < 0 ? lin.length : k;
+    const perto = new Set([pos - 1, pos]);
+    const linha = (x, j) => `<tr class="${perto.has(j) ? "perto" : ""}"><td><i style="background:var(--${x.cor})"></i>${x.nome}</td><td>${fmt(x.preco)}</td><td>${sinal(x.preco - ult)}</td></tr>`;
+    const corpo = lin.slice(0, pos).map(linha).join("") +
+      `<tr class="atual"><td><i style="background:var(--ink)"></i>Último</td><td>${fmt(ult)}</td><td>0</td></tr>` +
+      lin.slice(pos).map((x, j) => linha(x, j + pos)).join("");
+    const box = $("#tab-niveis"), primeira = !box.firstChild;
+    box.style.maxHeight = altura("g-preco") + 40 + "px";
+    box.innerHTML = `<table><thead><tr><th>nível</th><th>preço</th><th>dist.</th></tr></thead><tbody>${corpo}</tbody></table>`;
+    if (primeira || box.dataset.ass !== assinatura) {   // centraliza o ultimo na escada sem rolar a pagina
+      const tr = box.querySelector("tr.atual"); box.scrollTop = tr.offsetTop - box.clientHeight / 2; box.dataset.ass = assinatura;
+    }
+
     const linhas = [
-      ["Último", fmt(ult)], ["Variação do dia (desde a abertura)", sinal(ult - D.niveis[0].preco)],
-      ["ATR (" + D.tf + " min, 20)", fmt(D.atr, 0) + " pts"],
+      ["Variação desde a abertura", sinal(ult - a)],
+      [`ATR (${D.tf} min, 20)`, fmt(D.atr) + " pts"],
       ["Momentum", sinal(D.mom[i], 2) + " ATR"],
       ["Saldo de agressão", sinal(D.saldo[i])],
-      ["Saldo Profit (RTD)", sinal([...D.saldo_profit].reverse().find(v => v != null))],
+      ["Saldo Profit (RTD)", sinal((D.saldo_profit[ultimoDe(D.saldo_profit)]))],
       ["OFI acumulado", sinal(D.ofi_acum[i])],
     ];
-    if (p) linhas.push(["Desvio previsto do dia", p.sig_dia_pts ? "±" + fmt(p.sig_dia_pts) + " pts" : "–"], ["Desvio da próxima hora", p.faixa_1h_pts ? "±" + fmt(p.faixa_1h_pts) + " pts" : "–"]);
-    $("#tab-agora").innerHTML = "<table><tbody>" + linhas.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join("") + "</tbody></table>";
+    if (p) linhas.push(["Desvio do dia, modelo", p.sig_dia_pts ? "±" + fmt(p.sig_dia_pts) + " pts" : "–"],
+                       ["Desvio da próxima hora", p.faixa_1h_pts ? "±" + fmt(p.faixa_1h_pts) + " pts" : "–"]);
+    if (D.implicito) linhas.push([`Desvio do dia, IV ATM<small>${fmt(D.implicito.iv * 100, 1)}% · venc. ${dataBr(D.implicito.vencimento)}</small>`,
+      "±" + fmt(D.implicito.sig_dia_pts) + " pts"]);
+    const o = D.opcoes, ou = D.opcoes_ultima, g = D.gex, rs = v => (v < 0 ? "−" : "") + "R$ " + nfK.format(Math.abs(v));
+    if (g) {
+      const acima = g.flip == null ? null : g.spot > g.flip;
+      linhas.push([`GEX total<small>R$ por 1% do BOVA11 · ${g.gex_total >= 0 ? "gama positivo: tende a amortecer" : "gama negativo: tende a amplificar"}</small>`, rs(g.gex_total)],
+                  ["DEX total<small>delta de quem detém as opções</small>", rs(g.dex_total)],
+                  [`Gamma flip<small>${g.flip == null ? "o GEX não troca de sinal a ±12% do spot" : `BOVA11 ${fmt(g.flip, 2)} · spot ${acima ? "acima" : "abaixo"} (${sinal((g.spot / g.flip - 1) * 100, 1)}%)`}</small>`,
+                   g.flip_pts ? fmt(g.flip_pts) : "–"]);
+    }
+    if (o) linhas.push([`Posição em aberto<small>${o.fonte === "b3" ? "B3" : "colagem manual"} de ${dataBr(o.ref)} · 1 pt BOVA11 = ${fmt(o.razao, 0)} WIN</small>`,
+      `${o.strikes.length} strikes`]);
+    else linhas.push([`Posição em aberto<small>${ou ? `última de ${dataBr(ou.ref)} (${ou.fonte === "b3" ? "B3" : "manual"}): velha demais para este pregão` : "sem dados"}</small>`, "–"]);
+    $("#tab-agora").innerHTML = "<table><tbody>" + linhas.map(([x, y]) => `<tr><td>${x}</td><td>${y}</td></tr>`).join("") + "</tbody></table>";
+  }
+
+  // ---------- estado dos dados: ao vivo, atrasado, fechado ou historico
+  const hojeIso = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  const agoraBr = () => Date.now() / 1000 - new Date().getTimezoneOffset() * 60;  // mesma base do banco (Brasilia como UTC)
+  const hoje = () => D && new Date(D.dia * 1000).toISOString().slice(0, 10) === hojeIso();
+  function estado() {
+    const el = $("#estado"), diaD = new Date(D.dia * 1000).toISOString().slice(0, 10);
+    const s = agoraBr() % 86400, pregao = s >= 9 * 3600 && s <= 18.5 * 3600, atraso = agoraBr() - D.ultimo_ts;
+    let e, txt;
+    if (!live()) { e = "historico"; txt = `Histórico · pregão de ${dataBr(diaD)}/${diaD.slice(0, 4)}`; }
+    else if (!hoje() || !pregao) { e = "fechado"; txt = `Fechado · último pregão ${dataBr(diaD)} às ${new Date(D.ultimo_ts * 1000).toISOString().slice(11, 16)}`; }
+    else if (atraso > 90) { e = "atrasado"; txt = `Sem dados novos há ${Math.round(atraso / 60)} min · último às ${new Date(D.ultimo_ts * 1000).toISOString().slice(11, 19)}`; }
+    else { e = "vivo"; txt = `Ao vivo · ${new Date(D.ultimo_ts * 1000).toISOString().slice(11, 19)}`; }
+    el.dataset.estado = e;
+    const ic = e === "vivo" ? ICONE.vivo(css("--good")) : e === "atrasado" ? ICONE.aviso(css("--warn")) : ICONE.parado(css("--muted"));
+    el.innerHTML = ic + `<span>${txt}</span>`;
+    const ult = D.c[D.c.length - 1], ant = (D.niveis.find(x => x.nome === "Último ant.") || {}).preco;
+    $("#ult").textContent = fmt(ult);
+    const v = $("#var");
+    if (ant) { v.textContent = `${sinal(ult - ant)} (${sinal((ult / ant - 1) * 100, 2)}%) vs. pregão anterior`; v.className = ult >= ant ? "sobe" : "desce"; }
+    else { v.textContent = ""; }
+    $("#ir-hoje").hidden = live();
   }
 
   let assinatura = "";
   function desenhar(recriar) {
     if (!D || !D.t || !D.t.length) return;
-    const a = `${D.tf}|${D.dia}|${ligado.ou}`;
-    if (recriar || a !== assinatura || !G.preco) { montar(); assinatura = a; }
-    else for (const [k, id] of [["preco", "g-preco"], ["saldo", "g-saldo"], ["ofi", "g-ofi"], ["ou", "g-ou"]]) if (G[k]) G[k].setData(dadosDe(id));
-    infoPreco(G.preco); tabelas();
-    const t = new Date(D.ultimo_ts * 1000).toISOString();
-    $("#atualizado").textContent = `pregão ${t.slice(8, 10)}/${t.slice(5, 7)}/${t.slice(0, 4)} · último dado ${t.slice(11, 19)}`;
+    const a = `${D.tf}|${D.dia}|${ligado.ou}|${ligado.rel}|${relModo}`;
+    if (recriar || a !== assinatura || !G.preco) { assinatura = a; montar(); }
+    else for (const [k, id] of [["preco", "g-preco"], ["saldo", "g-saldo"], ["ofi", "g-ofi"], ["ou", "g-ou"], ["rel", "g-rel"]]) if (G[k]) G[k].setData(dadosDe(id));
+    infoPreco(G.preco); tabelas(); estado();
+    $("#perfil-modo").classList.toggle("esconde", !(ligado.gexperfil && D.gex));
+  }
+
+  function semPregao(msg) {
+    for (const k in G) { G[k].destroy(); delete G[k]; }
+    D = null;
+    $("#g-preco").innerHTML = `<div class="vazio"><b>Sem pregão em ${dataBr(dia)}/${dia.slice(0, 4)}</b><span>${msg}</span>` +
+      `<button class="link" type="button" id="vazio-hoje">Voltar ao pregão atual</button></div>`;
+    $("#vazio-hoje").addEventListener("click", irHoje);
+    document.querySelectorAll(".painel-dados").forEach(x => x.classList.add("esconde"));
+    $("#info-preco").innerHTML = ""; $("#tab-niveis").innerHTML = ""; $("#tab-agora").innerHTML = "";
+    $("#estado").dataset.estado = "historico"; $("#estado").innerHTML = ICONE.parado(css("--muted")) + "<span>Sem dados</span>";
+    $("#ult").textContent = "–"; $("#var").textContent = ""; $("#ir-hoje").hidden = false;
   }
 
   async function carregar() {
+    let j;
     try {
       const r = await fetch(`/api/grafico?tf=${tf}${dia ? "&dia=" + dia : ""}`);
-      const j = await r.json();
-      if (!r.ok || j.erro) throw new Error(j.erro || r.status);
-      $("#erro").textContent = "";
-      D = j; desenhar(false);
-    } catch (e) { $("#erro").textContent = "erro: " + e.message; }
+      j = await r.json();
+      if (!r.ok) throw new Error(j.erro || "HTTP " + r.status);
+    } catch (e) {
+      const av = $("#aviso");
+      av.innerHTML = ICONE.aviso(css("--warn")) + `<span>Não foi possível atualizar (${e.message}).` +
+        (ultimoOk ? ` Mostrando os dados recebidos às ${ultimoOk}.` : "") + (live() && $("#auto").checked ? " Nova tentativa em 5 s." : "") + "</span>";
+      av.hidden = false; return;
+    }
+    $("#aviso").hidden = true; ultimoOk = new Date().toTimeString().slice(0, 8);
+    if (j.erro) { if (dia) semPregao("Fim de semana, feriado ou dia sem coleta. Escolha outro dia."); return; }
+    document.querySelectorAll(".painel-dados").forEach(x => x.classList.remove("esconde"));
+    D = j; desenhar(false);
   }
   function agendar() { clearInterval(timer); if ($("#auto").checked && !dia) timer = setInterval(carregar, 5000); }
+  function irHoje() { dia = ""; $("#dia").value = ""; agendar(); carregar(); }
 
   $("#tfs").addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b) return;
     tf = b.dataset.tf; document.querySelectorAll("#tfs button").forEach(x => x.setAttribute("aria-pressed", x === b));
     carregar();
   });
-  $("#dia").addEventListener("change", e => {
-    const hoje = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-    dia = e.target.value === hoje ? "" : e.target.value; agendar(); carregar();
+  $("#rel-modo").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b || !D) return;
+    relModo = b.dataset.m; document.querySelectorAll("#rel-modo button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    assinatura = ""; desenhar(false);
   });
+  $("#perfil-modo").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b || !D) return;
+    perfilModo = b.dataset.m; document.querySelectorAll("#perfil-modo button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    G.preco && G.preco.redraw(false);
+  });
+  $("#dia").max = hojeIso();
+  $("#dia").addEventListener("change", e => {
+    dia = !e.target.value || e.target.value === hojeIso() ? "" : e.target.value; agendar(); carregar();
+  });
+  $("#ir-hoje").addEventListener("click", irHoje);
   $("#auto").addEventListener("change", agendar);
   // redesenha quando a largura muda (inclusive se a primeira montagem aconteceu com o painel ainda estreito)
   let rz; new ResizeObserver(() => { clearTimeout(rz); rz = setTimeout(() => {

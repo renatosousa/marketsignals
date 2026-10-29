@@ -2,6 +2,7 @@
 
   python -m unittest test_grafico_quant -v
 """
+import sqlite3
 import unittest
 
 import numpy as np
@@ -79,6 +80,94 @@ class TestOfi(unittest.TestCase):
         # t2: bid igual -> 7 - 7 = 0; ask caiu -> -4       => -4
         # t3: bid igual -> 12 - 7 = +5; ask igual -> -1 + 4 = +3 => +8
         self.assertEqual(list(e[1:]), [7.0, -4.0, 8.0])
+
+
+def banco_opcoes(manual=(), b3=()):
+    """SQLite em memoria com as tabelas de posicao: manual = [(capturado_em, venc DD/MM/AAAA, tipo, strike, descob.)],
+    b3 = [(sessao, venc AAAA-MM-DD, tipo, strike, descob.)]."""
+    con = sqlite3.connect(":memory:")
+    cols = "subjacente, vencimento, tipo, strike, coberto, travado, descoberto, vol_impl_pct"
+    con.execute(f"CREATE TABLE opcoes_manual_series (capturado_em, {cols})")
+    con.execute(f"CREATE TABLE b3_posicoes_series (sessao, {cols})")
+    con.executemany("INSERT INTO opcoes_manual_series VALUES (?,'BOVA11',?,?,?,0,0,?,0.25)", manual)
+    con.executemany("INSERT INTO b3_posicoes_series VALUES (?,'BOVA11',?,?,?,0,0,?,0.25)", b3)
+    return con
+
+
+class TestOpcoesRelacionados(unittest.TestCase):
+    def pos(self):
+        sr = lambda v, t, k, d, tr=0.0: ("2026-10-07T09:54:12", v, t, k, d + tr)
+        con = banco_opcoes(manual=[
+            sr("09/10/2026", "P", 195.0, 300.0), sr("09/10/2026", "P", 205.0, 900.0),   # 205 esta acima do spot
+            sr("09/10/2026", "C", 210.0, 500.0, 100.0), sr("09/10/2026", "C", 190.0, 800.0),
+            sr("16/10/2026", "P", 199.0, 9999.0),                                      # vencimento seguinte: fora
+            sr("02/10/2026", "C", 200.0, 9999.0)])                                     # ja venceu: fora
+        return gq.posicoes(con, "2026-10-07")
+
+    def test_niveis_opcoes(self):
+        o = gq.niveis_opcoes(self.pos(), spot=200.0, k_win=1000.0)
+        self.assertEqual(o["vencimento"], "2026-10-09")
+        self.assertEqual([x["k"] for x in o["suporte"]], [195.0])      # so puts abaixo do spot
+        self.assertEqual([x["k"] for x in o["resistencia"]], [210.0])  # so calls acima
+        self.assertEqual(o["suporte"][0]["pts"], 195_000)
+        self.assertEqual(o["ima"], 205_000)                            # 900 de put em 205 > 600 de call em 210
+        self.assertEqual(len(o["strikes"]), 4)
+
+    def test_posicoes_sem_olhar_o_futuro(self):
+        con = banco_opcoes(manual=[("2026-10-07T09:54:12", "09/10/2026", "C", 200.0, 1.0),
+                                   ("2026-10-09T10:00:00", "16/10/2026", "C", 200.0, 1.0)],
+                           b3=[("2026-10-08", "2026-10-16", "P", 190.0, 1.0)])
+        self.assertEqual(gq.posicoes(con, "2026-10-08")["ref"], "2026-10-07")  # a B3 de 08/10 so sai a noite
+        p = gq.posicoes(con, "2026-10-09")                                      # a manual de 09/10 vale no dia
+        self.assertEqual((p["fonte"], p["ref"]), ("manual", "2026-10-09"))
+        self.assertIsNone(gq.posicoes(con, "2026-10-06"))
+
+
+class TestGex(unittest.TestCase):
+    def test_gama_e_delta(self):
+        g, d = gq.bs_gama_delta(np.array([True, False]), 100.0, np.array([100.0, 100.0]), 1.0, 0.0, 0.2)
+        self.assertAlmostEqual(g[0], 0.0198476, places=6)  # phi(0,1) / (100 x 0,2)
+        self.assertAlmostEqual(d[0], 0.5398278, places=6)
+        self.assertAlmostEqual(d[1], 0.5398278 - 1, places=6)
+
+    def serie(self, linhas):
+        return dict(fonte="b3", ref="2026-10-07", series=pd.DataFrame(
+            [dict(venc="2026-11-19", tipo=t, strike=k, oi=oi, descoberto=0.0, iv=0.25) for t, k, oi in linhas]))
+
+    def test_flip_entre_put_e_call_simetricas(self):
+        # puts em 90 e calls em 110 com o mesmo OI: o GEX total troca de sinal perto do meio
+        x = gq.gex(self.serie([("P", 90.0, 1e6), ("C", 110.0, 1e6), ("C", 105.0, 2e5), ("P", 95.0, 1e5)]),
+                   100.0, "2026-10-07", 0.0)
+        self.assertTrue(97.0 < x["flip"] < 103.0, x["flip"])
+        self.assertEqual([w["k"] for w in x["call_walls"]], [110.0, 105.0])
+        self.assertEqual([w["k"] for w in x["put_walls"]], [90.0, 95.0])
+        self.assertLess(x["put_walls"][0]["gex"], 0)
+        self.assertGreater(x["dex_total"], 0)  # mais delta de call (OI 1,2 mi) do que de put
+
+    def test_sem_put_nao_ha_flip(self):
+        x = gq.gex(self.serie([("C", 100.0, 1e6)]), 100.0, "2026-10-07", 0.0)
+        self.assertIsNone(x["flip"])
+        self.assertGreater(x["gex_total"], 0)
+        self.assertEqual(x["put_walls"], [])
+
+    def test_sorriso_ao_vivo_substitui_a_iv_da_fonte(self):
+        p = self.serie([("C", 100.0, 1e6)])
+        ivs = pd.DataFrame({"venc": ["2026-11-19"] * 2, "strike": [95.0, 105.0], "iv": [0.30, 0.50]})
+        a = gq.gex(p, 100.0, "2026-10-07", 0.0)["gex_total"]
+        b = gq.gex(p, 100.0, "2026-10-07", 0.0, ivs)["gex_total"]  # IV interpolada 0,40 > 0,25: menos gama no ATM
+        self.assertAlmostEqual(b / a, 0.25 / 0.40, delta=0.03)
+
+
+class TestRelacionados(unittest.TestCase):
+    def test_razao_e_velas(self):
+        win = pd.DataFrame({"ts_ms": [0, 1000, 2000], "last": [100_000.0, 101_000.0, 102_000.0]})
+        bova = pd.DataFrame({"ts_ms": [0, 2000], "last": [100.0, 100.0]})
+        self.assertAlmostEqual(gq.razao(win, bova), 1010.0)  # t=1000 usa o BOVA11 de t=0 (ate 2 s antes)
+        v = gq.velas(pd.DataFrame({"ts_ms": [0, 30_000, 70_000], "last": [1.0, 3.0, 2.0]}), 1,
+                     pd.Series([0, 60_000, 120_000]))
+        self.assertEqual(list(v.o[:2]), [1.0, 2.0])
+        self.assertEqual(list(v.h[:2]), [3.0, 2.0])
+        self.assertTrue(np.isnan(v.c.iloc[2]))
 
 
 if __name__ == "__main__":
