@@ -130,9 +130,19 @@ class TestGex(unittest.TestCase):
         self.assertAlmostEqual(d[0], 0.5398278, places=6)
         self.assertAlmostEqual(d[1], 0.5398278 - 1, places=6)
 
-    def serie(self, linhas):
+    def serie(self, linhas, mult=1.0, fator=1.0):
         return dict(fonte="b3", ref="2026-10-07", series=pd.DataFrame(
-            [dict(venc="2026-11-19", tipo=t, strike=k, oi=oi, descoberto=0.0, iv=0.25) for t, k, oi in linhas]))
+            [dict(venc="2026-11-19", tipo=t, strike=k, oi=oi, descoberto=0.0, iv=0.25, mult=mult, fator=fator)
+             for t, k, oi in linhas]))
+
+    def test_multiplicador_e_forward(self):
+        base = gq.gex(self.serie([("C", 100.0, 1e3)]), 100.0, "2026-10-07", 0.0)
+        x50 = gq.gex(self.serie([("C", 100.0, 1e3)], mult=50.0), 100.0, "2026-10-07", 0.0)
+        self.assertAlmostEqual(x50["gex_total"] / base["gex_total"], 50.0)
+        # fator 1,02: o forward do vencimento e 102 com spot 100 -> igual a calcular com spot 102 e fator 1
+        a = gq.gex(self.serie([("C", 100.0, 1e3)], fator=1.02), 100.0, "2026-10-07", 0.0)
+        b = gq.gex(self.serie([("C", 100.0, 1e3)]), 102.0, "2026-10-07", 0.0)
+        self.assertAlmostEqual(a["gex_total"], b["gex_total"])
 
     def test_flip_entre_put_e_call_simetricas(self):
         # puts em 90 e calls em 110 com o mesmo OI: o GEX total troca de sinal perto do meio
@@ -156,6 +166,34 @@ class TestGex(unittest.TestCase):
         a = gq.gex(p, 100.0, "2026-10-07", 0.0)["gex_total"]
         b = gq.gex(p, 100.0, "2026-10-07", 0.0, ivs)["gex_total"]  # IV interpolada 0,40 > 0,25: menos gama no ATM
         self.assertAlmostEqual(b / a, 0.25 / 0.40, delta=0.03)
+
+
+class TestWdo(unittest.TestCase):
+    def test_segundos_sem_livro(self):
+        con = sqlite3.connect(":memory:")
+        con.execute("CREATE TABLE macro_cotacoes (ts_ms, symbol, bid, ask, last)")
+        con.execute("CREATE TABLE agressao_1min (ts_ms, symbol, vol_compra, vol_venda, preco)")
+        d = 20754 * gq.DIA_MS
+        con.executemany("INSERT INTO macro_cotacoes VALUES (?, 'WDO$', ?, ?, ?)",
+                        [(d + gq.H(9, 1), 5350.0, 5350.5, 5350.0), (d + gq.H(9, 2), 5351.0, 5350.0, 5351.0)])  # 2a: leilao
+        con.execute("INSERT INTO agressao_1min VALUES (?, 'WDO$', 10, 4, 5350.5)", (d + gq.H(9, 1),))
+        s = gq.segundos_sem_livro(con, d)
+        self.assertEqual(list(s["last"]), [5350.0, 5350.5])          # o livro cruzado fica fora
+        self.assertEqual(int(s.ts_ms.iloc[1]), d + gq.H(9, 2) - 1)   # volume no fim do minuto
+        self.assertEqual((s.vc.sum(), s.vv.sum()), (10.0, 4.0))
+        b = gq.barras(s, 1)
+        self.assertEqual((b.v.iloc[0], b.delta.iloc[0]), (14.0, 6.0))
+
+    def test_posicoes_dolar_so_d_menos_1(self):
+        con = sqlite3.connect(":memory:")
+        con.execute("CREATE TABLE b3_dolar_series (sessao, vencimento, tipo, strike, oi, iv, mult, fator)")
+        con.executemany("INSERT INTO b3_dolar_series VALUES (?, ?, 'C', 5400, ?, 0.15, 50, 1.0)",
+                        [("2026-10-27", "2026-11-03", 10), ("2026-10-28", "2026-11-03", 20),
+                         ("2026-10-28", "2026-10-01", 30)])                      # vencido: fora
+        p = gq.posicoes_dolar(con, "2026-10-29")
+        self.assertEqual((p["ref"], list(p["series"].oi)), ("2026-10-28", [20.0]))
+        self.assertEqual(gq.posicoes_dolar(con, "2026-10-28")["ref"], "2026-10-27")  # a de 28/10 sai a noite
+        self.assertTrue(p["series"].descoberto.isna().all())
 
 
 class TestRelacionados(unittest.TestCase):

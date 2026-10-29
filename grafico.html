@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gráfico WIN</title>
+<title>Gráfico WIN e WDO</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css">
 <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
 <style>
@@ -104,7 +104,7 @@ label.chk:hover { color: var(--ink); }
          border-radius: 10px; background: color-mix(in srgb, var(--warn) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
 .aviso[hidden] { display: none; }
 .aviso svg { flex: none; margin-top: 2px; }
-.esconde { display: none !important; }
+.esconde, .sem-pregao { display: none !important; }
 .u-legend { display: none; }
 .tag-cursor { position: absolute; pointer-events: none; font: 600 11px/18px var(--fonte); font-variant-numeric: tabular-nums;
               padding: 0 6px; border-radius: 4px; background: var(--ink-2); color: var(--surface); white-space: nowrap; display: none; }
@@ -143,13 +143,16 @@ details.metodo dd { margin: 0; }
 <body>
 <main>
   <header class="topo">
-    <h1>WIN</h1>
+    <h1 id="titulo">WIN</h1>
     <div class="cot" aria-live="polite"><b id="ult">–</b><span id="var"></span></div>
     <span class="estado" id="estado" data-estado="carregando"><span>Carregando…</span></span>
     <nav><a href="/">Voltar ao painel</a></nav>
   </header>
 
   <div class="barra" role="toolbar" aria-label="Controles do gráfico">
+    <div class="seg" id="ativos" role="group" aria-label="Ativo">
+      <button data-a="WIN" aria-pressed="true">WIN</button><button data-a="WDO">WDO</button>
+    </div>
     <div class="seg" id="tfs" role="group" aria-label="Tempo gráfico">
       <button data-tf="1">1 min</button><button data-tf="5" aria-pressed="true">5 min</button><button data-tf="15">15 min</button>
     </div>
@@ -177,16 +180,14 @@ details.metodo dd { margin: 0; }
         <div class="leitura" id="info-saldo"></div>
         <div class="grafico" id="g-saldo"></div>
       </section>
-      <section class="card painel-dados" aria-labelledby="h-ofi">
+      <section class="card painel-dados" id="card-ofi" aria-labelledby="h-ofi">
         <header><h2 id="h-ofi">OFI</h2><span class="unid">desequilíbrio do topo do livro por barra; cor clara = desacelerando</span></header>
         <div class="leitura" id="info-ofi"></div>
         <div class="grafico" id="g-ofi"></div>
       </section>
       <section class="card painel-dados" id="card-rel" aria-labelledby="h-rel">
         <header><h2 id="h-rel">Ativos relacionados</h2><span class="unid" id="unid-rel">variação desde a abertura de cada um, %</span>
-          <div class="seg pequeno" id="rel-modo" role="group" aria-label="Visão">
-            <button data-m="pct" aria-pressed="true">Variação %</button><button data-m="WDO">WDO</button><button data-m="BOVA11">BOVA11</button>
-          </div></header>
+          <div class="seg pequeno" id="rel-modo" role="group" aria-label="Visão"></div></header>
         <div class="leitura" id="info-rel"></div>
         <div class="grafico" id="g-rel"></div>
       </section>
@@ -224,6 +225,7 @@ details.metodo dd { margin: 0; }
       <dt>Saldo de agressão</dt><dd>O nosso, pelos ticks do MT5, e o do Profit (RTD), que deixa cerca de 25% do volume sem agressor.</dd>
       <dt>OFI</dt><dd>Cont, Kukanov e Stoikov (2014) no melhor bid/ask a cada segundo, somado por barra e dividido pela profundidade média do topo. Linha = média de 5 barras.</dd>
       <dt>Reversão à média</dt><dd>Modelo OU do mesmo repositório (Amaral 2026, não verificado). Sem validação fora da amostra.</dd>
+      <dt>WDO</dt><dd>Velas do coletor de cotações (a cada mudança de preço) e volume e saldo da agressão por minuto, ao preço do minuto: VWAP e perfil saem por minuto. Não há livro do dólar no banco, então não há OFI, e o modelo de regime é só do WIN. Opções: DOL e WDO sobre o dólar comercial (posição em aberto D-1 da B3, só o total, sem coberto/descoberto), IV pelo prêmio de referência da B3 com Black sobre o futuro de dólar do mesmo vencimento (fixa no dia, sem sorriso ao vivo). DOL = 50 × o prêmio por US$ 1.000, WDO = 10 ×.</dd>
       <dt>Ressalva</dt><dd>Nada aqui foi testado como sinal de entrada; são referências de preço e de fluxo.</dd>
     </dl>
   </details>
@@ -235,7 +237,8 @@ details.metodo dd { margin: 0; }
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const nf = d => new Intl.NumberFormat("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
   const nfK = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
-  const fmt = (v, d = 0) => v == null ? "–" : nf(d).format(v);
+  let CASAS = 0;   // casas do preco do ativo (WIN 0, WDO 1), vem da API
+  const fmt = (v, d = CASAS) => v == null ? "–" : nf(d).format(v);
   const sinal = (v, d = 0) => v == null ? "–" : (v > 0 ? "+" : v < 0 ? "−" : "") + nf(d).format(Math.abs(v));
   const pctTxt = v => v == null ? "–" : sinal(v, 2) + "%";
   const sinalK = v => v == null ? "–" : (v > 0 ? "+" : v < 0 ? "−" : "") + nfK.format(Math.abs(v));
@@ -289,6 +292,9 @@ details.metodo dd { margin: 0; }
   });
 
   let tf = "5", dia = "", D = null, timer = null, relModo = "pct", perfilModo = "gex", ultimoOk = null;
+  let ativo = new URLSearchParams(location.search).get("ativo") === "WDO" ? "WDO" : "WIN";
+  // cor segue o ativo, nao o papel no grafico: WIN sempre tinta, WDO laranja, BOVA11 verde
+  const COR_ATIVO = { WIN: "ink", WDO: "s2", BOVA11: "s3" }, CASAS_ATIVO = { WIN: 0, WDO: 1, BOVA11: 2 };
   const G = {};
   window.grafico = { G, dados: () => D };  // inspecao pelo console
 
@@ -512,7 +518,7 @@ details.metodo dd { margin: 0; }
     if (id === "g-ou") return [xs(), D.ou_gap, D.ou_theta, D.ou_theta.map(v => v == null ? null : -v)];
     if (id === "g-rel") {
       const R = D.relacionados || {};
-      if (relModo === "pct") return [xs(), pct(D.c, D.base_win), R.BOVA11 ? pct(R.BOVA11.c, R.BOVA11.base) : vazio(), R.WDO ? pct(R.WDO.c, R.WDO.base) : vazio()];
+      if (relModo === "pct") return [xs(), pct(D.c, D.base), ...Object.values(R).map(a => pct(a.c, a.base))];
       const a = R[relModo]; return [xs(), a ? a.c : vazio(), a ? a.h : vazio(), a ? a.l : vazio()];
     }
   }
@@ -554,7 +560,8 @@ details.metodo dd { margin: 0; }
     G.saldo = criar("g-saldo", [{ label: "Nosso", stroke: C.s1, width: 2, spanGaps: true }, { label: "Profit", stroke: C.s2, width: 2, spanGaps: true }],
       { fy: v => sinalK(v), tag: v => sinalK(v), hooks: { draw: [zero, rotulosSeries([["Nosso", C.s1], ["Profit", C.s2]], sinalK)],
         setCursor: [u => info(u, "#info-saldo", [["Nosso", D.saldo, sinal], ["Profit", D.saldo_profit, sinal]])] } });
-    G.ofi = criar("g-ofi", [{ label: "OFI", stroke: "transparent", width: 0 }, { label: "Média 5", stroke: C["ink-2"], width: 1.5 }],
+    $("#card-ofi").classList.toggle("esconde", !D.livro);
+    if (D.livro) G.ofi = criar("g-ofi", [{ label: "OFI", stroke: "transparent", width: 0 }, { label: "Média 5", stroke: C["ink-2"], width: 1.5 }],
       { fy: v => fmt(v, 1), tag: v => fmt(v, 2), hooks: { draw: [barrasOfi],
         setCursor: [u => info(u, "#info-ofi", [["OFI", D.ofi, v => sinal(v, 2)], ["Média 5", D.ofi_sinal, v => sinal(v, 2)], ["Acumulado", D.ofi_acum, sinalK]])] } });
     $("#card-ou").classList.toggle("esconde", !ligado.ou);
@@ -569,14 +576,17 @@ details.metodo dd { margin: 0; }
     const R = D.relacionados || {}, tem = ligado.rel && Object.keys(R).length;
     $("#card-rel").classList.toggle("esconde", !tem);
     if (!tem) return;
-    $("#unid-rel").textContent = relModo === "pct" ? "variação desde a abertura de cada um, %" : relModo === "WDO" ? "dólar futuro, pontos" : "ETF do Ibovespa, R$";
+    if (relModo !== "pct" && !R[relModo]) relModo = "pct";
+    $("#rel-modo").innerHTML = ["pct", ...Object.keys(R)].map(m =>
+      `<button data-m="${m}" aria-pressed="${m === relModo}">${m === "pct" ? "Variação %" : m}</button>`).join("");
+    $("#unid-rel").textContent = relModo === "pct" ? "variação desde a abertura de cada um, %" : relModo === "WDO" ? "dólar futuro, pontos" : relModo === "WIN" ? "Ibovespa futuro, pontos" : "ETF do Ibovespa, R$";
     if (relModo === "pct") {
-      G.rel = criar("g-rel", [{ label: "WIN", stroke: C.ink, width: 2, spanGaps: true }, { label: "BOVA11", stroke: C.s3, width: 2, spanGaps: true },
-        { label: "WDO", stroke: C.s2, width: 2, spanGaps: true }],
-        { fy: v => sinal(v, 1) + "%", tag: pctTxt, hooks: { draw: [zero, rotulosSeries([["WIN", C.ink], ["BOVA11", C.s3], ["WDO", C.s2]], pctTxt)],
-          setCursor: [u => info(u, "#info-rel", ["WIN", "BOVA11", "WDO"].map((n, k) => [n, u.data[k + 1], pctTxt]))] } });
+      const nomes = [D.ativo, ...Object.keys(R)], cor = n => C[COR_ATIVO[n] || "muted"];
+      G.rel = criar("g-rel", nomes.map(n => ({ label: n, stroke: cor(n), width: 2, spanGaps: true })),
+        { fy: v => sinal(v, 1) + "%", tag: pctTxt, hooks: { draw: [zero, rotulosSeries(nomes.map(n => [n, cor(n)]), pctTxt)],
+          setCursor: [u => info(u, "#info-rel", nomes.map((n, k) => [n, u.data[k + 1], pctTxt]))] } });
     } else {
-      const A = () => (D.relacionados || {})[relModo], dd = relModo === "BOVA11" ? 2 : 1;
+      const A = () => (D.relacionados || {})[relModo], dd = CASAS_ATIVO[relModo] ?? 1;
       G.rel = criar("g-rel", [{ label: "Fech.", stroke: "transparent", width: 0 }, { stroke: "transparent", width: 0 }, { stroke: "transparent", width: 0 }],
         { fy: v => fmt(v, dd), tag: v => fmt(v, dd), hooks: { draw: [u => { const a = A(); if (!a) return; const c = u.ctx; c.save(); c.beginPath();
             c.rect(u.bbox.left, u.bbox.top, u.bbox.width, u.bbox.height); c.clip(); velasEm(u, D.t, a.o, a.h, a.l, a.c, D.tf * 60); c.restore();
@@ -591,7 +601,7 @@ details.metodo dd { margin: 0; }
   function infoPreco(u) {
     const i = idxCursor(u), cor = D.c[i] >= D.o[i] ? "var(--pos)" : "var(--neg)";
     $("#info-preco").innerHTML = `<span><b>${hora(D.t[i])}</b></span>` + kv("Abert.", fmt(D.o[i])) + kv("Máx.", fmt(D.h[i])) + kv("Mín.", fmt(D.l[i])) +
-      kv("Fech.", `<b style="color:${cor}">${fmt(D.c[i])}</b>`) + kv("Volume", fmt(D.v[i])) + kv("Saldo", sinal(D.delta[i])) +
+      kv("Fech.", `<b style="color:${cor}">${fmt(D.c[i])}</b>`) + kv("Volume", fmt(D.v[i], 0)) + kv("Saldo", sinal(D.delta[i])) +
       (ligado.vwap ? kv("VWAP", `${fmt(D.vwap[i])} ±${fmt(D.vwap_sd[i])}`) : "") +
       (ligado.stop ? kv("Stops", `${fmt(D.stop_c[i])} / ${fmt(D.stop_v[i])}`) + kv("Momentum", sinal(D.mom[i], 2) + " ATR") : "");
   }
@@ -623,7 +633,7 @@ details.metodo dd { margin: 0; }
     lin.sort((x, y) => y.preco - x.preco);
     const k = lin.findIndex(x => x.preco < ult), pos = k < 0 ? lin.length : k;
     const perto = new Set([pos - 1, pos]);
-    const linha = (x, j) => `<tr class="${perto.has(j) ? "perto" : ""}"><td><i style="background:var(--${x.cor})"></i>${x.nome}</td><td>${fmt(x.preco)}</td><td>${sinal(x.preco - ult)}</td></tr>`;
+    const linha = (x, j) => `<tr class="${perto.has(j) ? "perto" : ""}"><td><i style="background:var(--${x.cor})"></i>${x.nome}</td><td>${fmt(x.preco)}</td><td>${sinal(x.preco - ult, CASAS)}</td></tr>`;
     const corpo = lin.slice(0, pos).map(linha).join("") +
       `<tr class="atual"><td><i style="background:var(--ink)"></i>Último</td><td>${fmt(ult)}</td><td>0</td></tr>` +
       lin.slice(pos).map((x, j) => linha(x, j + pos)).join("");
@@ -635,13 +645,13 @@ details.metodo dd { margin: 0; }
     }
 
     const linhas = [
-      ["Variação desde a abertura", sinal(ult - a)],
+      ["Variação desde a abertura", sinal(ult - a, CASAS)],
       [`ATR (${D.tf} min, 20)`, fmt(D.atr) + " pts"],
       ["Momentum", sinal(D.mom[i], 2) + " ATR"],
       ["Saldo de agressão", sinal(D.saldo[i])],
       ["Saldo Profit (RTD)", sinal((D.saldo_profit[ultimoDe(D.saldo_profit)]))],
-      ["OFI acumulado", sinal(D.ofi_acum[i])],
     ];
+    if (D.livro) linhas.push(["OFI acumulado", sinal(D.ofi_acum[i])]);
     if (p) linhas.push(["Desvio do dia, modelo", p.sig_dia_pts ? "±" + fmt(p.sig_dia_pts) + " pts" : "–"],
                        ["Desvio da próxima hora", p.faixa_1h_pts ? "±" + fmt(p.faixa_1h_pts) + " pts" : "–"]);
     if (D.implicito) linhas.push([`Desvio do dia, IV ATM<small>${fmt(D.implicito.iv * 100, 1)}% · venc. ${dataBr(D.implicito.vencimento)}</small>`,
@@ -649,12 +659,12 @@ details.metodo dd { margin: 0; }
     const o = D.opcoes, ou = D.opcoes_ultima, g = D.gex, rs = v => (v < 0 ? "−" : "") + "R$ " + nfK.format(Math.abs(v));
     if (g) {
       const acima = g.flip == null ? null : g.spot > g.flip;
-      linhas.push([`GEX total<small>R$ por 1% do BOVA11 · ${g.gex_total >= 0 ? "gama positivo: tende a amortecer" : "gama negativo: tende a amplificar"}</small>`, rs(g.gex_total)],
+      linhas.push([`GEX total<small>R$ por 1% ${D.subjacente === "DOL" ? "do dólar" : "do BOVA11"} · ${g.gex_total >= 0 ? "gama positivo: tende a amortecer" : "gama negativo: tende a amplificar"}</small>`, rs(g.gex_total)],
                   ["DEX total<small>delta de quem detém as opções</small>", rs(g.dex_total)],
-                  [`Gamma flip<small>${g.flip == null ? "o GEX não troca de sinal a ±12% do spot" : `BOVA11 ${fmt(g.flip, 2)} · spot ${acima ? "acima" : "abaixo"} (${sinal((g.spot / g.flip - 1) * 100, 1)}%)`}</small>`,
+                  [`Gamma flip<small>${g.flip == null ? "o GEX não troca de sinal a ±12% do spot" : `${D.subjacente === "DOL" ? "dólar" : "BOVA11"} ${fmt(g.flip, 2)} · spot ${acima ? "acima" : "abaixo"} (${sinal((g.spot / g.flip - 1) * 100, 1)}%)`}</small>`,
                    g.flip_pts ? fmt(g.flip_pts) : "–"]);
     }
-    if (o) linhas.push([`Posição em aberto<small>${o.fonte === "b3" ? "B3" : "colagem manual"} de ${dataBr(o.ref)} · 1 pt BOVA11 = ${fmt(o.razao, 0)} WIN</small>`,
+    if (o) linhas.push([`Posição em aberto<small>${o.fonte === "b3" ? "B3" : "colagem manual"} de ${dataBr(o.ref)}${D.subjacente === "BOVA11" ? ` · 1 pt BOVA11 = ${fmt(o.razao, 0)} WIN` : " · DOL e WDO"}</small>`,
       `${o.strikes.length} strikes`]);
     else linhas.push([`Posição em aberto<small>${ou ? `última de ${dataBr(ou.ref)} (${ou.fonte === "b3" ? "B3" : "manual"}): velha demais para este pregão` : "sem dados"}</small>`, "–"]);
     $("#tab-agora").innerHTML = "<table><tbody>" + linhas.map(([x, y]) => `<tr><td>${x}</td><td>${y}</td></tr>`).join("") + "</tbody></table>";
@@ -678,7 +688,7 @@ details.metodo dd { margin: 0; }
     const ult = D.c[D.c.length - 1], ant = (D.niveis.find(x => x.nome === "Último ant.") || {}).preco;
     $("#ult").textContent = fmt(ult);
     const v = $("#var");
-    if (ant) { v.textContent = `${sinal(ult - ant)} (${sinal((ult / ant - 1) * 100, 2)}%) vs. pregão anterior`; v.className = ult >= ant ? "sobe" : "desce"; }
+    if (ant) { v.textContent = `${sinal(ult - ant, CASAS)} (${sinal((ult / ant - 1) * 100, 2)}%) vs. pregão anterior`; v.className = ult >= ant ? "sobe" : "desce"; }
     else { v.textContent = ""; }
     $("#ir-hoje").hidden = live();
   }
@@ -686,7 +696,7 @@ details.metodo dd { margin: 0; }
   let assinatura = "";
   function desenhar(recriar) {
     if (!D || !D.t || !D.t.length) return;
-    const a = `${D.tf}|${D.dia}|${ligado.ou}|${ligado.rel}|${relModo}`;
+    const a = `${D.ativo}|${D.tf}|${D.dia}|${ligado.ou}|${ligado.rel}|${relModo}`;
     if (recriar || a !== assinatura || !G.preco) { assinatura = a; montar(); }
     else for (const [k, id] of [["preco", "g-preco"], ["saldo", "g-saldo"], ["ofi", "g-ofi"], ["ou", "g-ou"], ["rel", "g-rel"]]) if (G[k]) G[k].setData(dadosDe(id));
     infoPreco(G.preco); tabelas(); estado();
@@ -699,7 +709,7 @@ details.metodo dd { margin: 0; }
     $("#g-preco").innerHTML = `<div class="vazio"><b>Sem pregão em ${dataBr(dia)}/${dia.slice(0, 4)}</b><span>${msg}</span>` +
       `<button class="link" type="button" id="vazio-hoje">Voltar ao pregão atual</button></div>`;
     $("#vazio-hoje").addEventListener("click", irHoje);
-    document.querySelectorAll(".painel-dados").forEach(x => x.classList.add("esconde"));
+    document.querySelectorAll(".painel-dados").forEach(x => x.classList.add("sem-pregao"));
     $("#info-preco").innerHTML = ""; $("#tab-niveis").innerHTML = ""; $("#tab-agora").innerHTML = "";
     $("#estado").dataset.estado = "historico"; $("#estado").innerHTML = ICONE.parado(css("--muted")) + "<span>Sem dados</span>";
     $("#ult").textContent = "–"; $("#var").textContent = ""; $("#ir-hoje").hidden = false;
@@ -708,7 +718,7 @@ details.metodo dd { margin: 0; }
   async function carregar() {
     let j;
     try {
-      const r = await fetch(`/api/grafico?tf=${tf}${dia ? "&dia=" + dia : ""}`);
+      const r = await fetch(`/api/grafico?ativo=${ativo}&tf=${tf}${dia ? "&dia=" + dia : ""}`);
       j = await r.json();
       if (!r.ok) throw new Error(j.erro || "HTTP " + r.status);
     } catch (e) {
@@ -718,13 +728,25 @@ details.metodo dd { margin: 0; }
       av.hidden = false; return;
     }
     $("#aviso").hidden = true; ultimoOk = new Date().toTimeString().slice(0, 8);
-    if (j.erro) { if (dia) semPregao("Fim de semana, feriado ou dia sem coleta. Escolha outro dia."); return; }
-    document.querySelectorAll(".painel-dados").forEach(x => x.classList.remove("esconde"));
-    D = j; desenhar(false);
+    if (j.erro) { if (j.ativo && j.ativo !== ativo) return; if (dia) semPregao("Fim de semana, feriado ou dia sem coleta. Escolha outro dia."); return; }
+    document.querySelectorAll(".painel-dados").forEach(x => x.classList.remove("sem-pregao"));
+    if (j.ativo !== ativo) return;   // resposta de um ativo que ja foi trocado
+    D = j; CASAS = j.casas ?? 0; desenhar(false);
   }
   function agendar() { clearInterval(timer); if ($("#auto").checked && !dia) timer = setInterval(carregar, 5000); }
   function irHoje() { dia = ""; $("#dia").value = ""; agendar(); carregar(); }
 
+  function marcarAtivo() {
+    document.querySelectorAll("#ativos button").forEach(x => x.setAttribute("aria-pressed", x.dataset.a === ativo));
+    $("#titulo").textContent = ativo; document.title = `Gráfico ${ativo}`;
+  }
+  $("#ativos").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b || b.dataset.a === ativo) return;
+    ativo = b.dataset.a; marcarAtivo(); assinatura = "";
+    const u = new URL(location.href); u.searchParams.set("ativo", ativo); history.replaceState(null, "", u);
+    carregar();
+  });
+  marcarAtivo();
   $("#tfs").addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b) return;
     tf = b.dataset.tf; document.querySelectorAll("#tfs button").forEach(x => x.setAttribute("aria-pressed", x === b));
