@@ -607,6 +607,12 @@ class Grafico:
             rel[sym.rstrip("$")] = {k: _lista(v[k].to_numpy()) for k in "ohlc"} | dict(base=float(x["last"].iloc[0]))
             if sym == "BOVA11" and cfg["opcoes"] == "BOVA11":
                 k_pts, spot = razao(s, x), float(x["last"].iloc[-1])
+        if cfg["opcoes"] == "BOVA11" and k_pts is None and anteriores:
+            # antes das 10:00 o BOVA11 nao negocia: razao do pregao anterior e o BOVA11 implicito pelo WIN ao vivo
+            tabela, janela = cfg["rel"]["BOVA11"]
+            xa = ultimos(con, "BOVA11", tabela, anteriores[0], janela)
+            k_pts = razao(seg[anteriores[0]], xa)
+            spot = float(s["last"].iloc[-1]) / k_pts if k_pts else None
         if cfg["opcoes"] == "DOL":  # strikes ja estao em pontos do dolar; o spot e o proprio WDO$
             k_pts, spot = 1.0, float(s["last"].iloc[-1])
         dia_iso = pd.Timestamp(dia_ms, unit="ms").date().isoformat()

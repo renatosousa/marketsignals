@@ -39,6 +39,12 @@ body { margin: 0; background: var(--page); color: var(--ink);
        font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 main { max-width: 1440px; margin: 0 auto; padding: 20px 16px 48px; }
 header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 12px; }
+/* navegacao entre as paginas do dashboard (mesma regra no grafico.html) */
+.paginas { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.paginas a { font-size: 13px; color: var(--ink-2); text-decoration: none; padding: 5px 12px; border-radius: 8px; }
+.paginas a:hover { background: var(--wash); color: var(--ink); }
+.paginas a[aria-current="page"] { color: var(--ink); font-weight: 650; background: var(--wash); }
+.paginas a:focus-visible { outline: 2px solid var(--s1); outline-offset: 2px; }
 h1 { font-size: 20px; margin: 0; font-weight: 650; }
 .sub { color: var(--ink-2); font-size: 13px; }
 .filtros { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin: 8px 0 20px; }
@@ -104,10 +110,12 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
 </head>
 <body>
 <main>
+  <nav class="paginas" aria-label="Páginas">
+    <a href="/" aria-current="page">Painel</a><a href="/grafico?ativo=WIN">Gráfico WIN</a><a href="/grafico?ativo=WDO">Gráfico WDO</a>
+  </nav>
   <header>
     <h1>Painel Jev-trader</h1>
     <span class="sub" id="atualizado">carregando…</span>
-    <a class="sub" href="/grafico" style="color:var(--s1)">Gráfico do WIN com indicadores →</a>
   </header>
   <div class="filtros" role="toolbar" aria-label="Filtros">
     <div class="seg" id="janelas" aria-label="Janela de tempo">

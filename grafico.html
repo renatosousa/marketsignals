@@ -55,7 +55,11 @@ main { max-width: 1680px; margin: 0 auto; padding: 12px 16px 48px; }
           padding: 3px 10px 3px 8px; border-radius: 999px; background: var(--wash); }
 .estado svg { flex: none; }
 .estado[data-estado="vivo"] { color: var(--ink); }
-.topo nav { margin-left: auto; font-size: 13px; }
+/* navegacao entre as paginas do dashboard (mesma regra no dashboard.html) */
+.paginas { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.paginas a { font-size: 13px; color: var(--ink-2); text-decoration: none; padding: 5px 12px; border-radius: 8px; }
+.paginas a:hover { background: var(--wash); color: var(--ink); }
+.paginas a[aria-current="page"] { color: var(--ink); font-weight: 650; background: var(--wash-2); }
 a { color: var(--s1); text-underline-offset: 3px; }
 
 /* barra de controles */
@@ -133,7 +137,6 @@ details.metodo dd { margin: 0; }
 @media (max-width: 700px) {
   details.metodo dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   details.metodo dd { margin-bottom: 8px; }
-  .topo nav { margin-left: 0; }
   .camadas { display: none; }
   .camadas.aberto { display: flex; }
 }
@@ -142,11 +145,13 @@ details.metodo dd { margin: 0; }
 </head>
 <body>
 <main>
+  <nav class="paginas" aria-label="Páginas">
+    <a href="/">Painel</a><a href="/grafico?ativo=WIN" data-a="WIN">Gráfico WIN</a><a href="/grafico?ativo=WDO" data-a="WDO">Gráfico WDO</a>
+  </nav>
   <header class="topo">
     <h1 id="titulo">WIN</h1>
     <div class="cot" aria-live="polite"><b id="ult">–</b><span id="var"></span></div>
     <span class="estado" id="estado" data-estado="carregando"><span>Carregando…</span></span>
-    <nav><a href="/">Voltar ao painel</a></nav>
   </header>
 
   <div class="barra" role="toolbar" aria-label="Controles do gráfico">
@@ -739,6 +744,8 @@ details.metodo dd { margin: 0; }
   function marcarAtivo() {
     document.querySelectorAll("#ativos button").forEach(x => x.setAttribute("aria-pressed", x.dataset.a === ativo));
     $("#titulo").textContent = ativo; document.title = `Gráfico ${ativo}`;
+    document.querySelectorAll(".paginas a[data-a]").forEach(x => x.toggleAttribute("aria-current", x.dataset.a === ativo));
+    document.querySelectorAll(".paginas a[aria-current]").forEach(x => x.setAttribute("aria-current", "page"));
   }
   $("#ativos").addEventListener("click", e => {
     const b = e.target.closest("button"); if (!b || b.dataset.a === ativo) return;
