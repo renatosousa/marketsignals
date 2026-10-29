@@ -10,6 +10,9 @@ GET /api/tesouro-breakeven                -> inflacao implicita do Tesouro Diret
                                            com expectativas do Focus.
 GET /api/liquidez-bc                     -> leiloes de compromissadas do BC (coletor_bcb.py): Tomador e 1047.
 GET /api/wyckoff?ativo=WIN&tf=60min      -> fase/eventos Wyckoff objetivos (wyckoff.py) das ultimas barras fechadas.
+GET /grafico                             -> pagina do grafico do WIN com indicadores (grafico.html)
+GET /api/grafico?tf=1|5|15[&dia=AAAA-MM-DD] -> velas e indicadores do grafico (grafico_quant.py); sem dia = ultimo
+                                           pregao com snapshots.
 Todos os ts sao hora do servidor MT5 (Brasilia) codificada como epoch "UTC", como no banco.
 """
 import argparse
@@ -27,6 +30,7 @@ import numpy as np
 
 import banco
 import curvas
+import grafico_quant as gq
 import opcoes_manual as om
 import wyckoff
 
@@ -370,6 +374,28 @@ class App:
         self.db = db
         self.cache = {}
         self.lock = threading.Lock()
+        self.graf = gq.Grafico()
+
+    def grafico(self, tf, dia):
+        """JSON do /api/grafico; dia None = pregao do ultimo snapshot do WIN."""
+        with self.lock:
+            hit = self.cache.get(("g", tf, dia))
+            if hit and time.time() - hit[0] < CACHE_S:
+                return hit[1]
+            con = sqlite3.connect(f"file:{self.db}?mode=ro", uri=True, timeout=10)
+            try:
+                agora = agora_servidor_ms()
+                if dia is None:
+                    ref = con.execute("SELECT max(ts_ms) FROM snapshots WHERE symbol='WIN$'").fetchone()[0] or agora
+                    dia_ms = ref - ref % 86400_000
+                else:
+                    dia_ms = int(datetime.fromisoformat(dia).replace(tzinfo=timezone.utc).timestamp() * 1000)
+                r = self.graf.montar(con, dia_ms, tf, agora - agora % 86400_000)
+                corpo = json.dumps(json_limpo(r), ensure_ascii=False).encode()
+            finally:
+                con.close()
+            self.cache[("g", tf, dia)] = (time.time(), corpo)
+            return corpo
 
     def obter(self, janela):
         with self.lock:
@@ -674,6 +700,18 @@ def main():
             u = urlparse(self.path)
             if u.path in ("/", "/index.html"):
                 self.enviar(200, (AQUI / "dashboard.html").read_bytes(), "text/html; charset=utf-8")
+            elif u.path == "/grafico":
+                self.enviar(200, (AQUI / "grafico.html").read_bytes(), "text/html; charset=utf-8")
+            elif u.path == "/api/grafico":
+                q = parse_qs(u.query)
+                tf, dia = q.get("tf", ["5"])[0], q.get("dia", [None])[0]
+                if tf not in ("1", "5", "15") or (dia is not None and not (len(dia) == 10 and dia[4] == dia[7] == "-")):
+                    return self.enviar(400, b'{"erro":"tf (1|5|15) ou dia (AAAA-MM-DD) invalido"}', "application/json")
+                try:
+                    self.enviar(200, app.grafico(int(tf), dia), "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
             elif u.path == "/api/dados":
                 janela = parse_qs(u.query).get("janela", ["3600"])[0]
                 if janela != "pregao" and not janela.isdigit():
