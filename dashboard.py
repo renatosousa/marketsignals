@@ -11,6 +11,8 @@ GET /api/tesouro-breakeven                -> inflacao implicita do Tesouro Diret
 GET /api/liquidez-bc                     -> leiloes de compromissadas do BC (coletor_bcb.py): Tomador e 1047.
 GET /api/wyckoff?ativo=WIN&tf=60min      -> fase/eventos Wyckoff objetivos (wyckoff.py) das ultimas barras fechadas.
 GET /grafico                             -> pagina do grafico do WIN e do WDO com indicadores (grafico.html)
+GET /players                             -> evolucao dos players do WIN por corretora/grupo (players.html; coletor_tryd.py)
+GET /api/players[?dia=AAAA-MM-DD]        -> saldo, agressao e RLP por grupo de corretoras (players.py); sem dia = ultimo.
 GET /api/grafico?tf=1|5|15[&ativo=WIN|WDO][&dia=AAAA-MM-DD] -> velas e indicadores do grafico (grafico_quant.py);
                                            sem dia = ultimo pregao com dados do ativo.
 Todos os ts sao hora do servidor MT5 (Brasilia) codificada como epoch "UTC", como no banco.
@@ -32,6 +34,7 @@ import banco
 import curvas
 import grafico_quant as gq
 import opcoes_manual as om
+import players
 import wyckoff
 
 AQUI = Path(__file__).parent
@@ -400,6 +403,21 @@ class App:
             self.cache[chave] = (time.time(), corpo)
             return corpo
 
+    def players(self, dia):
+        """JSON do /api/players (cache curto: o saldo do Tryd muda a cada 10 s)."""
+        with self.lock:
+            chave = ("p", dia)
+            hit = self.cache.get(chave)
+            if hit and time.time() - hit[0] < CACHE_S:
+                return hit[1]
+            con = sqlite3.connect(f"file:{self.db}?mode=ro", uri=True, timeout=10)
+            try:
+                corpo = json.dumps(json_limpo(players.montar(con, dia)), ensure_ascii=False).encode()
+            finally:
+                con.close()
+            self.cache[chave] = (time.time(), corpo)
+            return corpo
+
     def obter(self, janela):
         with self.lock:
             hit = self.cache.get(janela)
@@ -714,6 +732,19 @@ def main():
                                        "application/json")
                 try:
                     self.enviar(200, app.grafico(int(tf), dia, ativo), "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
+            elif u.path == "/players":
+                self.enviar(200, (AQUI / "players.html").read_bytes(), "text/html; charset=utf-8")
+            elif u.path == "/api/players":
+                dia = parse_qs(u.query).get("dia", [None])[0]
+                try:
+                    idx = None if dia is None else date.fromisoformat(dia).toordinal() - date(1970, 1, 1).toordinal()
+                except ValueError:
+                    return self.enviar(400, b'{"erro":"dia (AAAA-MM-DD) invalido"}', "application/json")
+                try:
+                    self.enviar(200, app.players(idx), "application/json; charset=utf-8")
                 except Exception as e:
                     self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
                                 "application/json")

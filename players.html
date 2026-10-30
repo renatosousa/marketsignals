@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Players do WIN</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css">
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --panel: #f3f3f0; --border: rgba(11,11,11,0.10);
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #6f6d68;
+  --grid: #e8e7e1; --axis: #c3c2b7; --wash: rgba(11,11,11,0.05); --wash-2: rgba(11,11,11,0.09);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #6250d6; --s6: #8a8984;
+  --warn: #fab219;
+  --fonte: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --panel: #141413; --border: rgba(255,255,255,0.10);
+    --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a988f;
+    --grid: #262624; --axis: #383835; --wash: rgba(255,255,255,0.06); --wash-2: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9085e9; --s6: #8a8984;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --panel: #141413; --border: rgba(255,255,255,0.10);
+  --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a988f;
+  --grid: #262624; --axis: #383835; --wash: rgba(255,255,255,0.06); --wash-2: rgba(255,255,255,0.10);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9085e9; --s6: #8a8984;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 var(--fonte); }
+main { max-width: 1400px; margin: 0 auto; padding: 12px 16px 48px; }
+h1 { font-size: 20px; margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+a { color: var(--s1); text-underline-offset: 3px; }
+.paginas { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.paginas a { font-size: 13px; color: var(--ink-2); text-decoration: none; padding: 5px 12px; border-radius: 8px; }
+.paginas a:hover { background: var(--wash); color: var(--ink); }
+.paginas a[aria-current="page"] { color: var(--ink); font-weight: 650; background: var(--wash-2); }
+.topo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding-bottom: 10px; }
+.topo .sub { color: var(--ink-2); font-size: 13px; }
+.barra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 0 12px; }
+input[type=date] { font: inherit; font-size: 13px; color: var(--ink); background: var(--surface); border: 1px solid var(--border);
+                   border-radius: 8px; padding: 4px 8px; }
+label.chk { color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-size: 13px; }
+input[type=checkbox] { accent-color: var(--s1); margin: 0; }
+.aviso { font-size: 13px; padding: 8px 12px; margin-bottom: 12px; border-radius: 10px;
+         background: color-mix(in srgb, var(--warn) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
+.aviso[hidden] { display: none; }
+.legenda { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0 0 12px; font-size: 13px; }
+.legenda button { font: inherit; font-size: 13px; background: none; border: 0; padding: 2px 0; color: var(--ink-2); cursor: pointer;
+                  display: inline-flex; align-items: center; gap: 6px; }
+.legenda button[aria-pressed="false"] { opacity: 0.4; text-decoration: line-through; }
+.legenda i { width: 12px; height: 3px; border-radius: 2px; display: inline-block; }
+.legenda small { color: var(--muted); }
+.grade { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) 420px; align-items: start; }
+@media (max-width: 1100px) { .grade { grid-template-columns: minmax(0, 1fr); } }
+.pilha { display: grid; gap: 12px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 12px 8px; min-width: 0; }
+.card > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; margin: 0 4px 6px; }
+.card h2 { font-size: 14px; font-weight: 650; margin: 0; }
+.card .unid { color: var(--muted); font-size: 12px; }
+.leitura { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 12px; color: var(--ink-2); margin: 0 4px 6px;
+           font-variant-numeric: tabular-nums; min-height: 18px; }
+.leitura b { color: var(--ink); font-weight: 600; }
+.vazio { display: grid; place-items: center; text-align: center; padding: 48px 16px; color: var(--ink-2); }
+.u-legend { display: none; }
+table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th:nth-child(2), td:nth-child(2) { text-align: left; }
+thead th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
+.tab { max-height: 720px; overflow: auto; scrollbar-width: thin; }
+.pos { color: var(--s1); } .neg { color: #e34948; }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) .neg { color: #e66767; } }
+td i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+details.metodo { margin-top: 16px; color: var(--ink-2); font-size: 13px; }
+details.metodo summary { cursor: pointer; color: var(--ink); font-weight: 600; padding: 6px 0; }
+details.metodo p { max-width: 90ch; margin: 6px 0; }
+</style>
+</head>
+<body>
+<main>
+  <nav class="paginas" aria-label="Páginas">
+    <a href="/">Painel</a><a href="/grafico?ativo=WIN">Gráfico WIN</a><a href="/grafico?ativo=WDO">Gráfico WDO</a>
+    <a href="/players" aria-current="page">Players</a>
+  </nav>
+  <header class="topo">
+    <h1>Players do WIN</h1>
+    <span class="sub" id="sub">carregando…</span>
+  </header>
+  <div class="barra">
+    <input type="date" id="dia" aria-label="Pregão">
+    <label class="chk"><input type="checkbox" id="auto" checked> Atualizar a cada 10 s</label>
+  </div>
+  <div class="aviso" id="aviso" role="status" hidden></div>
+  <div class="legenda" id="legenda" role="group" aria-label="Grupos de corretoras"></div>
+
+  <div class="grade">
+    <div class="pilha">
+      <section class="card">
+        <header><h2>Posição líquida por grupo</h2><span class="unid">contratos acumulados no dia · comprou − vendeu (soma dos grupos = 0)</span></header>
+        <div class="leitura" id="l-saldo"></div>
+        <div id="g-saldo"></div>
+      </section>
+      <section class="card">
+        <header><h2>Saldo de agressão por grupo</h2><span class="unid">contratos acumulados · comprou a mercado − vendeu a mercado</span></header>
+        <div class="leitura" id="l-agr"></div>
+        <div id="g-agr"></div>
+      </section>
+      <section class="card">
+        <header><h2>RLP acumulado por grupo</h2><span class="unid">contratos da fita com agressor RLP (amostra de ~45–75% dos negócios)</span></header>
+        <div class="leitura" id="l-rlp"></div>
+        <div id="g-rlp"></div>
+      </section>
+      <section class="card">
+        <header><h2>RLP na fita</h2><span class="unid">% do volume capturado, por faixa de 5 min</span></header>
+        <div id="g-pct"></div>
+      </section>
+    </div>
+    <aside class="pilha">
+      <section class="card">
+        <header><h2>Corretoras</h2><span class="unid" id="u-tab"></span></header>
+        <div class="tab" id="tab"></div>
+      </section>
+    </aside>
+  </div>
+
+  <details class="metodo">
+    <summary>O que este gráfico mostra e o que não mostra</summary>
+    <p><b>Fonte.</b> Saldo por corretora e fita de negócios do Tryd (DDE), gravados por coletor_tryd.py: uma foto do saldo a cada 10 s e cada negócio da fita com corretora compradora, vendedora e agressor.</p>
+    <p><b>Corretora não é tipo de investidor.</b> O agrupamento é uma hipótese: Estrangeiro = bancos globais; Institucional = bancos e gestoras locais; Varejo = plataformas de pessoa física; Misto = XP, BTG, Genial e Santander, que atendem pessoa física e institucional juntos. Um fundo estrangeiro que opera pela XP aparece em Misto. O mapa só pode ser testado contra o fluxo por tipo de investidor que a B3 publica (só ações, com 2 pregões de atraso); isso exige semanas de coleta de PETR4, VALE3, ITUB4, BBDC4 e BOVA11.</p>
+    <p><b>RLP.</b> Na fita, todo negócio RLP tem a mesma corretora nas duas pontas: é o fluxo do varejo da corretora cruzado com o provedor de liquidez. Por isso não há saldo líquido de RLP por grupo; mede-se o volume e a parte do volume de cada corretora que foi RLP (quanto maior, mais varejo).</p>
+    <p><b>Market maker e HFT.</b> A B3 não publica; não há como validar. A coluna <i>Giro</i> (volume negociado ÷ |saldo|) só indica quem opera dos dois lados e termina o dia perto de zero.</p>
+    <p><b>Limites da fita.</b> A janela do Tryd guarda 31 negócios e se redesenha ~4 vezes por segundo; nos picos parte da fita se perde. O saldo por corretora vem do total acumulado do dia, sem perda.</p>
+    <p>Nada aqui foi testado como sinal de entrada.</p>
+  </details>
+</main>
+
+<script>
+const ORDEM = ["Estrangeiro", "Institucional", "Varejo", "Misto", "Liquidez", "Outros"];
+const COR = { Estrangeiro: "--s1", Institucional: "--s3", Varejo: "--s2", Misto: "--s5", Liquidez: "--s4", Outros: "--s6" };
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const nf0 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 });
+const nf1 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
+const hora = t => new Date(t * 1e3).toISOString().slice(11, 19);
+const escondidos = new Set();
+let dados = null, graficos = {};
+
+function grafico(id, x, series, o = {}) {
+  const el = document.getElementById(id);
+  const vis = series.filter(s => !escondidos.has(s.nome) && s.v.some(v => v != null));
+  if (!x.length || !vis.length) {
+    if (graficos[id]) { graficos[id].destroy(); delete graficos[id]; }
+    el.innerHTML = '<div class="vazio">sem dados</div>';
+    return;
+  }
+  if (graficos[id]) { graficos[id].destroy(); delete graficos[id]; }
+  el.innerHTML = "";
+  const u = new uPlot({
+    width: el.clientWidth || 400, height: o.altura || 230,
+    tzDate: ts => uPlot.tzDate(new Date(ts * 1e3), "Etc/UTC"),
+    cursor: { sync: { key: "players" }, points: { size: 8 } },
+    legend: { live: true },
+    series: [{ value: (u, v) => v == null ? "–" : hora(v) },
+      ...vis.map(s => ({ label: s.nome, stroke: css(COR[s.nome]), width: 2, spanGaps: true,
+                         points: { show: x.length < 40, size: 6 },
+                         value: (u, v) => v == null ? "–" : (o.fmt || nf0.format)(v) }))],
+    axes: [
+      { stroke: css("--muted"), grid: { stroke: css("--grid"), width: 1 }, ticks: { stroke: css("--grid"), width: 1 },
+        values: (u, sp) => sp.map(v => hora(v).slice(0, 5)) },
+      { stroke: css("--muted"), grid: { stroke: css("--grid"), width: 1 }, ticks: { stroke: css("--grid"), width: 1 }, size: 64,
+        values: (u, sp) => sp.map(v => (o.fmtEixo || nf0.format)(v)) },
+    ],
+    hooks: { draw: [u => {  // linha do zero
+      const y = u.valToPos(0, "y", true);
+      if (y < u.bbox.top || y > u.bbox.top + u.bbox.height) return;
+      const c = u.ctx; c.save(); c.strokeStyle = css("--axis"); c.lineWidth = 1;
+      c.beginPath(); c.moveTo(u.bbox.left, y); c.lineTo(u.bbox.left + u.bbox.width, y); c.stroke(); c.restore();
+    }] },
+  }, [x, ...vis.map(s => s.v)], el);
+  graficos[id] = u;
+  u.over.addEventListener("mousemove", () => {
+    const i = u.cursor.idx;
+    if (i == null || !o.leitura) return;
+    document.getElementById(o.leitura).innerHTML = `<span>${hora(x[i])}</span>` +
+      vis.map(s => `<span style="color:${css(COR[s.nome])}">${s.nome} <b>${s.v[i] == null ? "–" : (o.fmt || nf0.format)(s.v[i])}</b></span>`).join("");
+  });
+}
+
+function leituraFinal(id, series, fmt = nf0.format) {
+  document.getElementById(id).innerHTML = "<span>agora</span>" + series.filter(s => !escondidos.has(s.nome)).map(s => {
+    const v = s.v[s.v.length - 1];
+    return `<span style="color:${css(COR[s.nome])}">${s.nome} <b>${v == null ? "–" : fmt(v)}</b></span>`;
+  }).join("");
+}
+
+function desenhar() {
+  const d = dados;
+  const grupos = ORDEM.filter(g => d.series[g] || (d.rlp.acumulado || {})[g]);
+  document.getElementById("legenda").innerHTML = grupos.map(g =>
+    `<button data-g="${g}" aria-pressed="${!escondidos.has(g)}" title="${d.grupos[g]}"><i style="background:${css(COR[g])}"></i>${g}</button>`).join("");
+  document.querySelectorAll("#legenda button").forEach(b => b.onclick = () => {
+    const g = b.dataset.g; escondidos.has(g) ? escondidos.delete(g) : escondidos.add(g); desenhar();
+  });
+  const saldo = ORDEM.filter(g => d.series[g]).map(g => ({ nome: g, v: d.series[g].saldo }));
+  const agr = ORDEM.filter(g => d.series[g]).map(g => ({ nome: g, v: d.series[g].agr }));
+  grafico("g-saldo", d.t, saldo, { leitura: "l-saldo" }); leituraFinal("l-saldo", saldo);
+  grafico("g-agr", d.t, agr, { leitura: "l-agr" }); leituraFinal("l-agr", agr);
+  const r = d.rlp;
+  const rlp = ORDEM.filter(g => (r.acumulado || {})[g]).map(g => ({ nome: g, v: r.acumulado[g] }));
+  grafico("g-rlp", r.t, rlp, { leitura: "l-rlp" }); leituraFinal("l-rlp", rlp);
+  const pct = [{ nome: "Estrangeiro", v: r.pct_rlp.map(v => v == null ? null : v * 100) }];
+  // a unica serie do grafico de % nao e de um grupo: usa a cor do texto
+  COR["% RLP"] = "--ink-2"; pct[0].nome = "% RLP"; escondidos.delete("% RLP");
+  grafico("g-pct", r.t, pct, { altura: 160, fmt: v => nf1.format(v) + "%", fmtEixo: v => nf0.format(v) + "%" });
+  tabela(d);
+}
+
+function tabela(d) {
+  const cl = v => v == null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "";
+  document.getElementById("u-tab").textContent = `foto das ${hora(d.foto_fim)} · contratos`;
+  document.getElementById("tab").innerHTML = `<table><thead><tr><th>Corretora</th><th>Grupo</th><th>Saldo</th><th>Agressão</th><th>Volume</th><th>Giro</th><th>% RLP</th></tr></thead><tbody>` +
+    d.corretoras.map(c => `<tr><td>${c.corretora}</td><td><i style="background:${css(COR[c.grupo])}"></i>${c.grupo}</td>
+      <td class="${cl(c.saldo)}">${nf0.format(c.saldo)}</td><td class="${cl(c.agr)}">${nf0.format(c.agr)}</td>
+      <td>${nf0.format(c.volume)}</td><td>${c.giro == null ? "–" : nf0.format(c.giro)}</td>
+      <td>${c.rlp == null ? "–" : nf0.format(c.rlp * 100) + "%"}</td></tr>`).join("") + "</tbody></table>";
+}
+
+const iso = dia => new Date(dia * 86400e3).toISOString().slice(0, 10);
+
+async function carregar() {
+  const dia = document.getElementById("dia").value;
+  const aviso = document.getElementById("aviso");
+  try {
+    const r = await fetch("/api/players" + (dia ? "?dia=" + dia : ""));
+    const d = await r.json();
+    if (d.erro) throw new Error(d.erro);
+    if (d.vazio) {
+      document.getElementById("sub").textContent = "sem dados do Tryd nesse dia";
+      aviso.hidden = false;
+      aviso.textContent = "Sem fotos de saldo do WINZ26 para esse dia. O coletor_tryd.py grava das 08:55 às 18:30 (grupo TRYD) com o Tryd aberto e a janela de saldo exportando por DDE.";
+      return;
+    }
+    dados = d;
+    const el = document.getElementById("dia");
+    if (!dia) el.value = iso(d.dia);
+    el.min = iso(d.dias[0]); el.max = iso(d.dias[d.dias.length - 1]);
+    document.getElementById("sub").textContent =
+      `${d.ativo} · ${iso(d.dia)} · ${d.fotos} fotos do saldo (${hora(d.foto_inicio)}–${hora(d.foto_fim)}) · ${nf0.format(d.negocios_fita)} negócios na fita`;
+    // o saldo e acumulado do dia: se a coleta comecou depois da abertura, falta o que veio antes? Nao: o saldo
+    // ja traz o acumulado desde a abertura. A serie so nao tem pontos antes da primeira foto.
+    const abertura = 9 * 3600 + 5 * 60, inicio = d.foto_inicio % 86400;
+    aviso.hidden = inicio <= abertura;
+    if (!aviso.hidden) aviso.textContent = `A coleta começou às ${hora(d.foto_inicio)}: o saldo da primeira foto já traz o acumulado desde a abertura, mas não há pontos da evolução antes dela.`;
+    desenhar();
+  } catch (e) {
+    aviso.hidden = false;
+    aviso.textContent = "Erro ao carregar: " + e.message;
+  }
+}
+
+document.getElementById("dia").onchange = carregar;
+setInterval(() => {  // so atualiza sozinho no ultimo dia coletado
+  const dia = document.getElementById("dia").value;
+  if (document.getElementById("auto").checked && dados && dia === iso(dados.dias[dados.dias.length - 1])) carregar();
+}, 10000);
+let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => dados && desenhar(), 200); });
+carregar();
+</script>
+</body>
+</html>
