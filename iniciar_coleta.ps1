@@ -12,8 +12,11 @@ $coletas = [ordered]@{
     'MACRO'         = @('MACRO', '--db', 'dados/book.db', '--script', 'coletor_macro.py')
     # VIX (CBOE, atrasado ~15 min) pela cotacao publica da Cboe, sem login; substitui o coletor da IBKR
     'VIX'           = @('VIX', '--db', 'dados/book.db', '--script', 'coletor_vix.py')
-    # saldo de agressao calculado pelo Profit (RTD); so grava com o Profit aberto e logado
-    'PROFIT'        = @('PROFIT', '--db', 'dados/book.db', '--script', 'coletor_profit_rtd.py')
+    # DESATIVADO em 30/10/2026: saldo de agressao do Profit por RTD (coletor_profit_rtd.py segue no repo)
+    # 'PROFIT'      = @('PROFIT', '--db', 'dados/book.db', '--script', 'coletor_profit_rtd.py')
+    # corretoras do Tryd por DDE: saldo por corretora a cada 10 s + fita de negocios com corretora (coletor_tryd.py).
+    # So grava com o Tryd aberto e as janelas "Saldo por corretora" e "Negocios" do WIN abertas com a exportacao DDE ligada
+    'TRYD'          = @('TRYD', '--db', 'dados/book.db', '--script', 'coletor_tryd.py')
     # leiloes de compromissadas do BC (Tomador 09:00, 1047 12:00-12:30) e Selic: busca a cada 20 min
     'BCB'           = @('BCB', '--db', 'dados/book.db', '--script', 'coletor_bcb.py')
     # desativado em 19/10/2026: so gravava o VIX e exigia o IB Gateway logado todo dia (coletor_ibkr.py segue no repo)
