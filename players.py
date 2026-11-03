@@ -82,12 +82,44 @@ def saldo_por_grupo(linhas):
     return ts_ms, series, ultima, tem_agr
 
 
-def tabela(ultima, rlp_por_brk):
+def agressao_da_fita(fita, bins_s=60):
+    """ESTIMATIVA do saldo de agressao pela fita, para quando a janela de saldo do Tryd nao preenche as colunas de agressao
+    (3/11/2026). Negocio com agressor "Comprador": a corretora compradora comprou a mercado (+qtd); "Vendedor": a vendedora
+    vendeu a mercado (-qtd); RLP, Direto e Leilao nao entram. So conta o que a fita capturou (35-75% dos negocios) e o
+    erro cresce com a rajada: serve para a direcao, nao para o valor. -> ({t, series:{grupo: acumulado}}, {corretora: saldo},
+    cobertura 0-1)."""
+    if not fita:
+        return {"t": [], "series": {}}, {}, None
+    faixas = sorted({(r[0] // 1000) // bins_s for r in fita})
+    pos = {f: i for i, f in enumerate(faixas)}
+    por_grupo = {g: np.zeros(len(faixas)) for g in GRUPOS}
+    por_brk = {}
+    for ts_ms, _, q, _, comp, vend, agr, *_ in fita:
+        q = q or 0
+        if agr == "Comprador":
+            por_grupo[grupo(comp)][pos[(ts_ms // 1000) // bins_s]] += q
+            por_brk[comp] = por_brk.get(comp, 0) + q
+        elif agr == "Vendedor":
+            por_grupo[grupo(vend)][pos[(ts_ms // 1000) // bins_s]] -= q
+            por_brk[vend] = por_brk.get(vend, 0) - q
+    t = [f * bins_s + bins_s // 2 for f in faixas]
+    series = {g: np.cumsum(v).tolist() for g, v in por_grupo.items() if np.any(v)}
+    return {"t": t, "series": series}, por_brk, None
+
+
+def cobertura_fita(fita):
+    """Parte dos negocios que a fita capturou: `num` anda de 10 em 10, entao (max - min) / 10 + 1 e o total esperado."""
+    nums = [r[7] for r in fita if r[7] is not None]
+    return len(nums) / ((max(nums) - min(nums)) // 10 + 1) if len(nums) > 1 else None
+
+
+def tabela(ultima, rlp_por_brk, agr_est=None):
     """Linhas da tabela por corretora na ultima foto, ordenadas por volume negociado."""
     out = []
     for brk, (q, s, c, v) in ultima.items():
         vol = c + v
-        out.append({"corretora": brk, "grupo": grupo(brk), "saldo": q, "agr": s, "volume": vol,
+        out.append({"corretora": brk, "grupo": grupo(brk), "saldo": q, "agr": s if agr_est is None else agr_est.get(brk, 0),
+                    "volume": vol,
                     "giro": vol / abs(q) if q else None,
                     "rlp": rlp_por_brk.get(brk)})
     out.sort(key=lambda r: -r["volume"])
@@ -108,7 +140,7 @@ def fita_rlp(fita, bins_s=300):
     vol, vol_rlp, preco = np.zeros(len(faixas)), np.zeros(len(faixas)), np.full(len(faixas), np.nan)
     por_grupo = {g: np.zeros(len(faixas)) for g in GRUPOS}
     tot, rlp_b = {}, {}
-    for (ts_ms, _, q, p, comp, vend, agr), f in zip(fita, faixa):
+    for (ts_ms, _, q, p, comp, vend, agr, *_), f in zip(fita, faixa):
         i, q = pos[f], q or 0
         vol[i] += q
         preco[i] = p if p else preco[i]
@@ -139,16 +171,18 @@ def montar(con, dia, ativo="WINZ26"):
     if not linhas:
         return {"vazio": True, "ativo": ativo, "dia": dia}
     ts_ms, series, ultima, tem_agr = saldo_por_grupo(linhas)
-    fita = con.execute("SELECT ts_ms, hora, qtd, preco, comprador, vendedor, agressor FROM tryd_fita "
+    fita = con.execute("SELECT ts_ms, hora, qtd, preco, comprador, vendedor, agressor, num FROM tryd_fita "
                        "WHERE ativo=? AND dia=? ORDER BY num", (ativo, dia)).fetchall()
     rlp, pct = fita_rlp(fita)
+    agr_fita, agr_brk, _ = agressao_da_fita(fita) if not tem_agr else (None, None, None)
     dias = [r[0] for r in con.execute("SELECT DISTINCT ts_ms / ? FROM tryd_saldo WHERE ativo=? ORDER BY 1", (DIA_MS, ativo))]
     return {
         "ativo": ativo, "dia": dia, "dias": dias,
         "t": [x // 1000 for x in ts_ms], "series": series, "agr_disponivel": tem_agr,
         "foto_inicio": linhas[0][0] // 1000, "foto_fim": ts_ms[-1] // 1000, "fotos": len({r[0] for r in linhas}),
         "rlp": {**rlp, "t": rlp["t"]},
-        "corretoras": tabela(ultima, pct),
+        "agr_fita": agr_fita, "agr_cobertura_fita": cobertura_fita(fita) if agr_fita else None,
+        "corretoras": tabela(ultima, pct, agr_brk if agr_fita else None),
         "grupos": {g: DESCRICAO[g] for g in GRUPOS},
         "negocios_fita": len(fita),
     }

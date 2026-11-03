@@ -211,7 +211,13 @@ function desenhar() {
   const agr = ORDEM.filter(g => d.series[g] && d.series[g].agr).map(g => ({ nome: g, v: d.series[g].agr }));
   grafico("g-saldo", d.t, saldo, { leitura: "l-saldo" }); leituraFinal("l-saldo", saldo);
   if (d.agr_disponivel) { grafico("g-agr", d.t, agr, { leitura: "l-agr" }); leituraFinal("l-agr", agr); }
-  else {
+  else if (d.agr_fita && d.agr_fita.t.length) {  // ESTIMATIVA pela fita enquanto a janela do Tryd nao manda a agressao
+    const est = ORDEM.filter(g => d.agr_fita.series[g]).map(g => ({ nome: g, v: d.agr_fita.series[g] }));
+    grafico("g-agr", d.agr_fita.t, est, { leitura: "l-agr" }); leituraFinal("l-agr", est);
+    const cob = d.agr_cobertura_fita != null ? ` (a fita capturou ${nf0.format(d.agr_cobertura_fita * 100)}% dos negócios)` : "";
+    document.getElementById("g-agr").insertAdjacentHTML("beforeend",
+      `<div class="aviso" style="margin:8px 4px 4px">ESTIMADO pela fita${cob}: a janela de Saldo do Tryd não está enviando Agr. Cpa., Agr. Vda. e Sld. Agr. Vale a direção, não o valor. Corrigir quando o Tryd voltar a mandar o dado.</div>`);
+  } else {
     if (graficos["g-agr"]) { graficos["g-agr"].destroy(); delete graficos["g-agr"]; }
     document.getElementById("l-agr").innerHTML = "";
     document.getElementById("g-agr").innerHTML = '<div class="vazio">Sem dados: a janela de Saldo por corretora do Tryd não está preenchendo as colunas Agr. Cpa., Agr. Vda. e Sld. Agr.</div>';
@@ -228,10 +234,10 @@ function desenhar() {
 
 function tabela(d) {
   const cl = v => v == null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "";
-  document.getElementById("u-tab").textContent = `foto das ${hora(d.foto_fim)} · contratos`;
-  document.getElementById("tab").innerHTML = `<table><thead><tr><th>Corretora</th><th>Grupo</th><th>Saldo</th><th>Agressão</th><th>Volume</th><th>Giro</th><th>% RLP</th></tr></thead><tbody>` +
+  document.getElementById("u-tab").textContent = `foto das ${hora(d.foto_fim)} · contratos` + (d.agr_fita ? " · * agressão estimada pela fita" : "");
+  document.getElementById("tab").innerHTML = `<table><thead><tr><th>Corretora</th><th>Grupo</th><th>Saldo</th><th>Agressão${d.agr_fita ? "*" : ""}</th><th>Volume</th><th>Giro</th><th>% RLP</th></tr></thead><tbody>` +
     d.corretoras.map(c => `<tr><td>${c.corretora}</td><td><i style="background:${css(COR[c.grupo])}"></i>${c.grupo}</td>
-      <td class="${cl(c.saldo)}">${nf0.format(c.saldo)}</td><td class="${cl(c.agr)}">${nf0.format(c.agr)}</td>
+      <td class="${cl(c.saldo)}">${nf0.format(c.saldo)}</td><td class="${cl(c.agr)}">${nf0.format(c.agr)}${d.agr_fita ? "*" : ""}</td>
       <td>${nf0.format(c.volume)}</td><td>${c.giro == null ? "–" : nf0.format(c.giro)}</td>
       <td>${c.rlp == null ? "–" : nf0.format(c.rlp * 100) + "%"}</td></tr>`).join("") + "</tbody></table>";
 }

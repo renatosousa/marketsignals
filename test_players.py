@@ -44,6 +44,20 @@ class TestSaldo(unittest.TestCase):
         self.assertTrue(r["agr_disponivel"])
         self.assertEqual(r["series"]["Misto"]["agr"], [-3])
 
+    def test_agressao_estimada_pela_fita_quando_a_janela_nao_manda(self):
+        fita = [(DIA, "WINZ26", 10, T0, "12:00:00.000", 5, 170000, "Goldman", "XP", "Comprador", "+"),
+                (DIA, "WINZ26", 20, T0 + 1000, "12:00:01.000", 3, 169995, "XP", "Goldman", "Vendedor", "-"),
+                (DIA, "WINZ26", 30, T0 + 2000, "12:00:02.000", 9, 170000, "XP", "XP", "RLP", "="),
+                (DIA, "WINZ26", 50, T0 + 3000, "12:00:03.000", 2, 170000, "BTG", "Ideal", "Comprador", "+")]
+        r = players.montar(banco([(T0, "XP", 1, "", 1, 0), (T0, "Goldman", -1, "", 0, 1)], fita), DIA)
+        self.assertFalse(r["agr_disponivel"])
+        est = r["agr_fita"]["series"]
+        self.assertEqual(est["Estrangeiro"], [2])   # Goldman comprou 5 a mercado e vendeu 3 a mercado
+        self.assertEqual(est["Misto"], [2])         # BTG comprou 2 a mercado; RLP nao entra
+        self.assertAlmostEqual(r["agr_cobertura_fita"], 4 / 5)  # num 10..50: 5 esperados, 4 capturados
+        gold = {c["corretora"]: c for c in r["corretoras"]}["Goldman"]
+        self.assertEqual(gold["agr"], 2)
+
     def test_sem_dados(self):
         self.assertTrue(players.montar(banco([]), None)["vazio"])
         self.assertTrue(players.montar(banco([(T0, "XP", 1, 1, 1, 0)]), DIA + 5)["vazio"])
