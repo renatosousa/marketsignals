@@ -614,10 +614,14 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
     const el = document.getElementById(id);
     if (!strikes.length) { el.innerHTML = '<div class="vazio">sem dados</div>'; return; }
     const W = el.clientWidth || 600, H = 260, esq = 56, dir = 12, topo = 10, baixo = 34;
-    const max = Math.max(1, ...call, ...put);
-    const escY = v => (H - baixo) - (v / max) * (H - baixo - topo);
+    // uma serie absurda (ex.: 11 milhoes a descoberto sem negocio, longe do dinheiro) achataria todas as outras:
+    // a escala segue a 2a maior barra e a que passa de 3x ela e cortada e rotulada com o valor real
+    const ord = [...call, ...put].sort((a, b) => b - a);
+    const max = Math.max(1, ord[0] > 3 * (ord[1] || 0) && ord[1] > 0 ? ord[1] * 1.25 : ord[0]);
+    const escY = v => (H - baixo) - (Math.min(v, max) / max) * (H - baixo - topo);
     const passo = (W - esq - dir) / strikes.length;
     const bw = Math.min(22, passo / 2 - 3);
+    const salto = Math.max(1, Math.ceil(26 / passo));  // rotulos do eixo: um a cada `salto` strikes para nao se sobreporem
     const cs = cores();
     const fmtM = v => v >= 1e6 ? (v / 1e6).toFixed(1) + "M" : v >= 1e3 ? (v / 1e3).toFixed(0) + "k" : String(Math.round(v));
     let svg = `<svg class="bars-svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">`;
@@ -631,7 +635,10 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
       const yc = escY(call[i]), yp = escY(put[i]);
       svg += `<rect x="${cx - bw - 1}" y="${yc}" width="${bw}" height="${(H - baixo) - yc}" fill="${cs[0]}" rx="2"/>`;
       svg += `<rect x="${cx + 1}" y="${yp}" width="${bw}" height="${(H - baixo) - yp}" fill="${cs[1]}" rx="2"/>`;
-      svg += `<text x="${cx}" y="${H - baixo + 16}" text-anchor="middle"${k === ima ? ' class="rotulo-ima"' : ""}>${fmt(k, 0)}</text>`;
+      [[call[i], cx - bw / 2 - 1], [put[i], cx + bw / 2 + 1]].forEach(([v, x]) => {
+        if (v > max) svg += `<text x="${x}" y="${topo + 22}" text-anchor="middle" class="rotulo-ima" font-size="10">▲${fmtM(v)}</text>`;
+      });
+      if (i % salto === 0 || k === ima) svg += `<text x="${cx}" y="${H - baixo + 16}" text-anchor="middle"${k === ima ? ' class="rotulo-ima"' : ""}>${fmt(k, 0)}</text>`;
       if (k === ima) svg += `<text x="${cx}" y="${topo + 10}" text-anchor="middle" class="rotulo-ima">ímã</text>`;
     });
     svg += "</svg>";
@@ -659,10 +666,11 @@ button.botao:hover { opacity: .92; } button.botao:disabled { opacity: .5; cursor
         <div class="val">strike ${r.strike_ima != null ? fmt(r.strike_ima, 0) : "–"}</div>
         <div class="det">concentração ${r.concentracao_ima != null ? fmt(r.concentracao_ima, 1) + "×" : "–"} o 2º maior ·
         ATM ${r.atm_iv != null ? fmt(r.atm_iv * 100, 1) + "%" : "–"} · RR25 ${r.rr25 != null ? sinal(r.rr25 * 100, 2) : "–"}<br>
-        suporte (put descoberta) ${r.suporte != null ? fmt(r.suporte, 0) : "–"} · resistência (call descoberta) ${r.resistencia != null ? fmt(r.resistencia, 0) : "–"}</div></div>`;
+        suporte (put descoberta) ${r.suporte != null ? fmt(r.suporte, 0) : "–"} · resistência (call descoberta) ${r.resistencia != null ? fmt(r.resistencia, 0) : "–"}
+        ${r.fora_faixa ? `<br><span style="color:var(--muted)">fora da faixa ±${fmt((d.faixa || 0) * 100, 0)}% do spot: ${r.fora_faixa.symbol} (strike ${fmt(r.fora_faixa.strike, 0)}) com ${fmt(r.fora_faixa.total, 0)} contratos</span>` : ""}</div></div>`;
     }).join("");
     $("#grade-pm").innerHTML = d.resumo.map((r, i) =>
-      `<div class="card"><h3>Posição em aberto · ${r.vencimento}</h3><div class="unid">coberto + travado + descoberto por strike (contratos)</div><div class="graf" id="g-pm-${i}"></div></div>`
+      `<div class="card"><h3>Posição em aberto · ${r.vencimento}</h3><div class="unid">coberto + travado + descoberto por strike (contratos)${d.faixa ? ` · só strikes a ±${fmt(d.faixa * 100, 0)}% do spot` : ""}</div><div class="graf" id="g-pm-${i}"></div></div>`
     ).join("");
     d.resumo.forEach((r, i) => {
       const s = d.series.filter(x => x.vencimento === r.vencimento);

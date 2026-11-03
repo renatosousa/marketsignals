@@ -454,10 +454,30 @@ def opcoes_manual_ultimo(db_path, subjacente="BOVA11"):
     return dict(capturado_em=ts, resumo=resumo, series=series, fonte="manual")
 
 
-def posicoes_b3_ultimo(db_path, subjacente="BOVA11", n_venc=4, faixa=0.25, dias=70):
+def resumo_da_faixa(series):
+    """strike_ima, concentracao_ima, suporte e resistencia de um vencimento, so com `series` (dicts com tipo, strike,
+    coberto, travado, descoberto). Imã = strike de maior posicao total (call + put); concentracao = imã / 2o maior;
+    suporte/resistencia = strike de maior posicao a descoberto em put/call. Sem dado: None."""
+    total, desc = {}, {"P": {}, "C": {}}
+    for r in series:
+        k = r["strike"]
+        total[k] = total.get(k, 0.0) + sum(r.get(c) or 0.0 for c in ("coberto", "travado", "descoberto"))
+        if r["tipo"] in desc and r.get("descoberto"):
+            desc[r["tipo"]][k] = desc[r["tipo"]].get(k, 0.0) + r["descoberto"]
+    ima = max(total, key=total.get) if total and max(total.values()) > 0 else None
+    seg = max((v for k, v in total.items() if k != ima), default=0.0)
+    return dict(strike_ima=ima, concentracao_ima=total[ima] / seg if ima is not None and seg else None,
+                suporte=max(desc["P"], key=desc["P"].get) if desc["P"] else None,
+                resistencia=max(desc["C"], key=desc["C"].get) if desc["C"] else None)
+
+
+def posicoes_b3_ultimo(db_path, subjacente="BOVA11", n_venc=4, faixa=0.15, dias=70):
     """Ultima sessao baixada da B3 por posicoes_b3_csv.py, no mesmo formato de opcoes_manual_ultimo.
     A B3 traz todas as series (~30 vencimentos): devolve os n_venc vencimentos com mais posicao em
-    aberto nos proximos `dias` dias e so strikes a +-faixa do spot."""
+    aberto nos proximos `dias` dias e so strikes a +-faixa do spot. O imã, a concentracao e o suporte/resistencia
+    sao recalculados so com os strikes da faixa (resumo_da_faixa): na B3 ha series longe do dinheiro com posicao
+    absurda (3/11/2026: BOVAK205W4 e BOVAW205W4 com exatamente 11.000.000 a descoberto, sem negocio), que viravam
+    o imã de um vencimento em que a posicao real nao passa de 25 mil contratos."""
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=10)
     try:
         if not con.execute("SELECT 1 FROM sqlite_master WHERE name='b3_posicoes_resumo'").fetchone():
@@ -483,9 +503,16 @@ def posicoes_b3_ultimo(db_path, subjacente="BOVA11", n_venc=4, faixa=0.25, dias=
                                        "FROM b3_posicoes_series WHERE sessao=? AND subjacente=? "
                                        f"AND vencimento IN ({','.join('?' * len(vencs))}) AND strike BETWEEN ? AND ?",
                                        (sessao, subjacente, *vencs, k_min, k_max))] if vencs else []
+        for x in resumo:  # a maior serie FORA da faixa, para a pagina avisar o que foi deixado de lado
+            f = con.execute("SELECT strike, tipo, symbol, coalesce(total_pos,0) FROM b3_posicoes_series WHERE sessao=? "
+                            "AND subjacente=? AND vencimento=? AND (strike<? OR strike>?) ORDER BY 4 DESC LIMIT 1",
+                            (sessao, subjacente, x["vencimento"], k_min, k_max)).fetchone()
+            x["fora_faixa"] = dict(strike=f[0], tipo=f[1], symbol=f[2], total=f[3]) if f and f[3] else None
     finally:
         con.close()
-    return dict(capturado_em=cap, sessao=sessao, spot=spot, resumo=resumo, series=series, fonte="b3")
+    for x in resumo:
+        x.update(resumo_da_faixa([r for r in series if r["vencimento"] == x["vencimento"]]))
+    return dict(capturado_em=cap, sessao=sessao, spot=spot, faixa=faixa, resumo=resumo, series=series, fonte="b3")
 
 
 def posicao_aberta(db_path, subjacente="BOVA11", fonte=None):
