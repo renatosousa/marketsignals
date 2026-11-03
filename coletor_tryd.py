@@ -68,8 +68,9 @@ class Tryd:
         return valor(self.dde.ler(item))
 
     def ativa(self, ativo, ferr):
-        """True se a janela <ativo>_<ferr> esta aberta e exportando."""
-        return not vazio(self._ler(f"{ativo}_{ferr}.INFO.ATV"))
+        """True se a janela <ativo>_<ferr> esta aberta e exportando. So vale se o ativo devolvido e o pedido: com a
+        janela quebrada o Tryd responde a qualquer item com o texto de outra janela (3/11/2026, ITUB4 e BBDC4)."""
+        return self._ler(f"{ativo}_{ferr}.INFO.ATV") == ativo
 
     def saldo(self, ts, ativo):
         """[(ts, ativo, linha, *campos)] das corretoras da janela; a tabela termina na primeira corretora vazia."""

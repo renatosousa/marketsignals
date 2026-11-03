@@ -52,6 +52,13 @@ class TestSaldo(unittest.TestCase):
         t.conectar()
         self.assertFalse(t.ativa("WINZ26", "SAL"))
 
+    def test_janela_quebrada_devolve_texto_de_outra_janela(self):
+        lixo = "WINZ26" + chr(9) + "Saldo" + chr(9) + chr(13) + chr(10) + "Corretora" + chr(9) + "Vol."
+        t = ct.Tryd(lambda: DdeFalso({"ITUB4_SAL.INFO.ATV": lixo, "PETR4_SAL.INFO.ATV": "WINZ26"}))
+        t.conectar()
+        self.assertFalse(t.ativa("ITUB4", "SAL"))
+        self.assertFalse(t.ativa("PETR4", "SAL"))  # ativo de outra janela
+
     def test_para_na_primeira_corretora_vazia(self):
         dde = DdeFalso(saldo(["UBS", "XP", "BTG"]))
         t = ct.Tryd(lambda: dde)
