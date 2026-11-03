@@ -18,7 +18,7 @@ Acoes (--acoes): so o saldo por corretora, a cada --saldo-acoes s (padrao 60): a
 (estrangeiro, institucional, pessoa fisica...) so para acoes, com 2 pregoes de atraso, e e com elas que se valida o mapa
 corretora -> tipo de investidor. A janela de cada acao precisa estar aberta no Tryd.
 
-Uso: python coletor_tryd.py [GRUPO] [SEGUNDOS] [--db dados/book.db] [--ativos WINZ26] [--acoes PETR4,...] [--saldo 10]
+Uso: python coletor_tryd.py [GRUPO] [SEGUNDOS] [--db dados/book.db] [--ativos WINZ26,WDOZ26] [--acoes PETR4,...] [--saldo 10]
                             [--saldo-acoes 60] [--fita 0.125]
 """
 import argparse
@@ -29,7 +29,7 @@ import banco
 from dde_tryd import Dde, valor
 from relogio import local_br_ms
 
-ATIVOS = ("WINZ26",)  # saldo + fita; rolagem do WIN: trocar quando o contrato vencer
+ATIVOS = ("WINZ26", "WDOZ26")  # saldo + fita (a janela de negocios, se aberta); rolagem: trocar quando o contrato vencer
 ACOES = ("PETR4", "VALE3", "ITUB4", "BBDC4", "BOVA11")  # so saldo: valida corretora -> tipo de investidor (D+2 da B3, acoes)
 SALDO_CAMPOS = ["BRK", "VOL", "QTD", "PREMED", "AGRC", "AGRV", "SAGR", "SPAS", "PLB", "QTDC", "QTDV", "VOLC", "VOLV"]
 FITA_CAMPOS = ["DAT", "QUL", "PRE", "ACP", "AVD", "AGR", "VAR"]  # + NUM, lido a parte
