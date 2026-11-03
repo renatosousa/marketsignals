@@ -94,7 +94,8 @@ class Tryd:
             vals = [self._ler(f"{ativo}_SAL.{c}.{i}") for c in SALDO_CAMPOS]
             if vazio(vals[0]):
                 break
-            linhas.append((ts, ativo, i, *vals))
+            # celula vazia (coluna que a janela do Tryd nao preenche, ex.: agressao em 3/11/2026) vira NULL
+            linhas.append((ts, ativo, i, *(None if vazio(v) and j else v for j, v in enumerate(vals))))
         return linhas
 
     def fita(self, ts, ativo):

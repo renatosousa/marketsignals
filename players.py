@@ -58,12 +58,14 @@ def _reduzir(ts, pontos=PONTOS):
 
 
 def saldo_por_grupo(linhas):
-    """linhas = [(ts_ms, brk, qtd, sagr, qtdc, qtdv)] de um dia -> (ts_ms, {grupo: {"saldo": [], "agr": []}}, ultima foto).
+    """linhas = [(ts_ms, brk, qtd, sagr, qtdc, qtdv)] de um dia -> (ts_ms, {grupo: {"saldo": [], "agr": []}}, ultima foto, tem_agr).
+    `agr` so entra se a janela do Tryd preencher as colunas de agressao (3/11/2026 vieram vazias o dia todo).
     Uma corretora que ainda nao apareceu na tabela vale 0 (a tabela so lista quem ja operou)."""
     if not linhas:
         return [], {}, []
-    por_ts = {}
+    por_ts, tem_agr = {}, False
     for ts, brk, qtd, sagr, qtdc, qtdv in linhas:
+        tem_agr = tem_agr or sagr not in (None, "")
         por_ts.setdefault(ts, {})[brk] = (qtd or 0.0, sagr or 0.0, qtdc or 0.0, qtdv or 0.0)
     tempos = sorted(por_ts)
     saldo = {g: np.zeros(len(tempos)) for g in GRUPOS}
@@ -74,10 +76,10 @@ def saldo_por_grupo(linhas):
             agr[grupo(brk)][i] += s
     idx = _reduzir(tempos)
     ts_ms = [tempos[i] for i in idx]
-    series = {g: {"saldo": saldo[g][idx].tolist(), "agr": agr[g][idx].tolist()} for g in GRUPOS
+    series = {g: {"saldo": saldo[g][idx].tolist(), **({"agr": agr[g][idx].tolist()} if tem_agr else {})} for g in GRUPOS
               if np.any(saldo[g]) or np.any(agr[g])}
     ultima = por_ts[tempos[-1]]
-    return ts_ms, series, ultima
+    return ts_ms, series, ultima, tem_agr
 
 
 def tabela(ultima, rlp_por_brk):
@@ -136,14 +138,14 @@ def montar(con, dia, ativo="WINZ26"):
                          "ORDER BY ts_ms", (ativo, lo, hi)).fetchall()
     if not linhas:
         return {"vazio": True, "ativo": ativo, "dia": dia}
-    ts_ms, series, ultima = saldo_por_grupo(linhas)
+    ts_ms, series, ultima, tem_agr = saldo_por_grupo(linhas)
     fita = con.execute("SELECT ts_ms, hora, qtd, preco, comprador, vendedor, agressor FROM tryd_fita "
                        "WHERE ativo=? AND dia=? ORDER BY num", (ativo, dia)).fetchall()
     rlp, pct = fita_rlp(fita)
     dias = [r[0] for r in con.execute("SELECT DISTINCT ts_ms / ? FROM tryd_saldo WHERE ativo=? ORDER BY 1", (DIA_MS, ativo))]
     return {
         "ativo": ativo, "dia": dia, "dias": dias,
-        "t": [x // 1000 for x in ts_ms], "series": series,
+        "t": [x // 1000 for x in ts_ms], "series": series, "agr_disponivel": tem_agr,
         "foto_inicio": linhas[0][0] // 1000, "foto_fim": ts_ms[-1] // 1000, "fotos": len({r[0] for r in linhas}),
         "rlp": {**rlp, "t": rlp["t"]},
         "corretoras": tabela(ultima, pct),

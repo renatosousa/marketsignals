@@ -79,6 +79,15 @@ class TestSaldo(unittest.TestCase):
         t.conectar()
         self.assertFalse(t.ativa_estavel("PETR4", "SAL"))
 
+    def test_celula_vazia_vira_null(self):
+        d = saldo(["UBS"])
+        d["WINZ26_SAL.SAGR.0"] = ""
+        t = ct.Tryd(lambda: DdeFalso(d))
+        t.conectar()
+        linha = t.saldo(TS, "WINZ26")[0]
+        self.assertIsNone(linha[3 + ct.SALDO_CAMPOS.index("SAGR")])
+        self.assertEqual(linha[3], "UBS")
+
     def test_para_na_primeira_corretora_vazia(self):
         dde = DdeFalso(saldo(["UBS", "XP", "BTG"]))
         t = ct.Tryd(lambda: dde)

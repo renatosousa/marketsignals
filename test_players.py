@@ -35,6 +35,15 @@ class TestSaldo(unittest.TestCase):
             self.assertEqual(sum(s["saldo"][i] for s in r["series"].values()), 0)
         self.assertEqual(r["corretoras"][0]["corretora"], "XP")  # maior volume
 
+    def test_agressao_vazia_nao_vira_serie_de_zeros(self):
+        saldo = [(T0, "XP", 5, "", 5, 0), (T0 + 10_000, "XP", 7, None, 7, 0)]
+        r = players.montar(banco(saldo), DIA)
+        self.assertFalse(r["agr_disponivel"])
+        self.assertNotIn("agr", r["series"]["Misto"])
+        r = players.montar(banco([(T0, "XP", 5, -3, 5, 0)]), DIA)
+        self.assertTrue(r["agr_disponivel"])
+        self.assertEqual(r["series"]["Misto"]["agr"], [-3])
+
     def test_sem_dados(self):
         self.assertTrue(players.montar(banco([]), None)["vazio"])
         self.assertTrue(players.montar(banco([(T0, "XP", 1, 1, 1, 0)]), DIA + 5)["vazio"])

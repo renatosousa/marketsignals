@@ -208,9 +208,14 @@ function desenhar() {
     const g = b.dataset.g; escondidos.has(g) ? escondidos.delete(g) : escondidos.add(g); desenhar();
   });
   const saldo = ORDEM.filter(g => d.series[g]).map(g => ({ nome: g, v: d.series[g].saldo }));
-  const agr = ORDEM.filter(g => d.series[g]).map(g => ({ nome: g, v: d.series[g].agr }));
+  const agr = ORDEM.filter(g => d.series[g] && d.series[g].agr).map(g => ({ nome: g, v: d.series[g].agr }));
   grafico("g-saldo", d.t, saldo, { leitura: "l-saldo" }); leituraFinal("l-saldo", saldo);
-  grafico("g-agr", d.t, agr, { leitura: "l-agr" }); leituraFinal("l-agr", agr);
+  if (d.agr_disponivel) { grafico("g-agr", d.t, agr, { leitura: "l-agr" }); leituraFinal("l-agr", agr); }
+  else {
+    if (graficos["g-agr"]) { graficos["g-agr"].destroy(); delete graficos["g-agr"]; }
+    document.getElementById("l-agr").innerHTML = "";
+    document.getElementById("g-agr").innerHTML = '<div class="vazio">Sem dados: a janela de Saldo por corretora do Tryd não está preenchendo as colunas Agr. Cpa., Agr. Vda. e Sld. Agr.</div>';
+  }
   const r = d.rlp;
   const rlp = ORDEM.filter(g => (r.acumulado || {})[g]).map(g => ({ nome: g, v: r.acumulado[g] }));
   grafico("g-rlp", r.t, rlp, { leitura: "l-rlp" }); leituraFinal("l-rlp", rlp);
