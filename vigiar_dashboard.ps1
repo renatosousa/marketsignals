@@ -7,7 +7,7 @@ while ($true) {
     $vivo = Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object { $_.CommandLine -like '*dashboard.py*' }
     if (-not $vivo) {
         Write-Output "[$(Get-Date -Format 'dd/MM HH:mm:ss')] dashboard fora do ar, reiniciando"
-        Start-Process -FilePath "$PSScriptRoot\.venv\Scripts\python.exe" -ArgumentList @('-u', 'dashboard.py', '--porta', '8050') `
+        Start-Process -FilePath "$PSScriptRoot\.venv\Scripts\python.exe" -ArgumentList @('-u', 'dashboard.py', '--porta', '8050', '--host', '127.0.0.1,100.79.177.127') `
             -WorkingDirectory $PSScriptRoot -WindowStyle Hidden `
             -RedirectStandardOutput 'dados\dashboard.log' -RedirectStandardError 'dados\dashboard.log.err'
     }

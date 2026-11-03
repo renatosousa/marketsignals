@@ -1,6 +1,6 @@
 """Dashboard local do Jev-trader: le o book.db (somente leitura) e serve uma pagina com graficos.
 
-  python dashboard.py [--db dados/book.db] [--porta 8050]
+  python dashboard.py [--db dados/book.db] [--porta 8050] [--host 127.0.0.1]
   abrir http://127.0.0.1:8050
 
 GET /api/dados?janela=<segundos|pregao>  -> JSON com status das coletas, WIN/BOVA11, opcoes e macro
@@ -703,6 +703,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default=str(AQUI / "dados" / "book.db"))
     ap.add_argument("--porta", type=int, default=8050)
+    ap.add_argument("--host", default="127.0.0.1", help="enderecos de escuta, separados por virgula; para acesso remoto inclua o IP do Tailscale (100.x.y.z), nunca 0.0.0.0: a pagina nao tem senha e o POST /api/opcoes-manual grava no banco")
     args = ap.parse_args()
     app = App(Path(args.db).resolve())
 
@@ -830,9 +831,18 @@ def main():
                 self.enviar(400, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}, ensure_ascii=False).encode(),
                             "application/json; charset=utf-8")
 
-    srv = ThreadingHTTPServer(("127.0.0.1", args.porta), H)
-    print(f"Dashboard em http://127.0.0.1:{args.porta}  (db {app.db})", flush=True)
-    srv.serve_forever()
+    srvs = []
+    for host in [h.strip() for h in args.host.split(",") if h.strip()]:
+        try:  # o IP do Tailscale so existe com ele conectado: sem ele, segue so nos outros enderecos
+            srvs.append(ThreadingHTTPServer((host, args.porta), H))
+            print(f"Dashboard em http://{host}:{args.porta}  (db {app.db})", flush=True)
+        except OSError as e:
+            print(f"aviso: nao consegui escutar em {host}:{args.porta} ({e})", flush=True)
+    if not srvs:
+        raise SystemExit("nenhum endereco de escuta disponivel")
+    for srv in srvs[1:]:
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+    srvs[0].serve_forever()
 
 
 if __name__ == "__main__":
