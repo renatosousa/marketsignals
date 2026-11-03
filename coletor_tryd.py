@@ -34,6 +34,7 @@ ACOES = ("PETR4", "VALE3", "ITUB4", "BBDC4", "BOVA11")  # so saldo: valida corre
 SALDO_CAMPOS = ["BRK", "VOL", "QTD", "PREMED", "AGRC", "AGRV", "SAGR", "SPAS", "PLB", "QTDC", "QTDV", "VOLC", "VOLV"]
 FITA_CAMPOS = ["DAT", "QUL", "PRE", "ACP", "AVD", "AGR", "VAR"]  # + NUM, lido a parte
 LINHAS_SALDO, LINHAS_FITA = 500, 100  # a janela de negocios guarda 100 linhas (era 31 ate 3/11/2026)
+FALHAS_MAX = 3  # testes seguidos sem o ativo para dar a janela como fechada (ver ativa_estavel)
 VISTOS_MAX = 50_000  # numeros de negocio lembrados por ativo (o `num` so cresce dentro do dia)
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tryd_saldo (
@@ -59,6 +60,7 @@ class Tryd:
 
     def __init__(self, abrir=Dde):
         self._abrir, self.dde, self.vistos = abrir, None, {}
+        self.estado, self.falhas = {}, {}
 
     def conectar(self):
         if self.dde is None:
@@ -71,6 +73,19 @@ class Tryd:
         """True se a janela <ativo>_<ferr> esta aberta e exportando. So vale se o ativo devolvido e o pedido: com a
         janela quebrada o Tryd responde a qualquer item com o texto de outra janela (3/11/2026, ITUB4 e BBDC4)."""
         return self._ler(f"{ativo}_{ferr}.INFO.ATV") == ativo
+
+    def ativa_estavel(self, ativo, ferr):
+        """`ativa` com histerese: uma janela que estava ativa so vira inativa depois de FALHAS_MAX leituras seguidas sem
+        o ativo. Com o pregao aberto o Tryd as vezes nao responde ao ATV por alguns segundos (3/11/2026, 09:03 e 09:04:
+        duas lacunas de 10 s na fita) e um unico None desligava a leitura ate o proximo teste."""
+        chave = (ativo, ferr)
+        if self.ativa(ativo, ferr):
+            self.falhas[chave], self.estado[chave] = 0, True
+        else:
+            self.falhas[chave] = self.falhas.get(chave, 0) + 1
+            if self.falhas[chave] >= FALHAS_MAX or not self.estado.get(chave):
+                self.estado[chave] = False
+        return self.estado[chave]
 
     def saldo(self, ts, ativo):
         """[(ts, ativo, linha, *campos)] das corretoras da janela; a tabela termina na primeira corretora vazia."""
@@ -149,7 +164,7 @@ def main():
         nonlocal n_saldo
         for a in lista:
             for ferr in ferrs:
-                ativas[(a, ferr)] = tryd.ativa(a, ferr)
+                ativas[(a, ferr)] = tryd.ativa_estavel(a, ferr)
                 log(f"{a}_{ferr}", "ativa" if ativas[(a, ferr)] else "inativa: abra a janela no Tryd com a "
                                                                      "exportacao DDE ligada")
             if ativas[(a, "SAL")]:
@@ -177,6 +192,7 @@ def main():
                 log("DDE", str(e))
                 tryd.fechar()
                 ativas.clear()
+                tryd.estado.clear()
                 prox_saldo = prox_acoes = time.time() + 30
                 time.sleep(30)
                 continue
@@ -184,6 +200,7 @@ def main():
                 log("DDE", f"leitura falhou ({e.__class__.__name__}: {e}); reconectando")
                 tryd.fechar()
                 ativas.clear()
+                tryd.estado.clear()
                 prox_saldo = prox_acoes = 0.0
                 time.sleep(2)
                 continue

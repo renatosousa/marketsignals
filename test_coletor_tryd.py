@@ -59,6 +59,26 @@ class TestSaldo(unittest.TestCase):
         self.assertFalse(t.ativa("ITUB4", "SAL"))
         self.assertFalse(t.ativa("PETR4", "SAL"))  # ativo de outra janela
 
+    def test_janela_ativa_aguenta_falhas_isoladas(self):
+        dde = DdeFalso({"WINZ26_NEGS.INFO.ATV": "WINZ26"})
+        t = ct.Tryd(lambda: dde)
+        t.conectar()
+        self.assertTrue(t.ativa_estavel("WINZ26", "NEGS"))
+        dde.itens.clear()  # o Tryd deixa de responder
+        self.assertTrue(t.ativa_estavel("WINZ26", "NEGS"))   # 1a falha
+        self.assertTrue(t.ativa_estavel("WINZ26", "NEGS"))   # 2a falha
+        dde.itens["WINZ26_NEGS.INFO.ATV"] = "WINZ26"         # voltou: zera a contagem
+        self.assertTrue(t.ativa_estavel("WINZ26", "NEGS"))
+        dde.itens.clear()
+        for _ in range(ct.FALHAS_MAX - 1):
+            self.assertTrue(t.ativa_estavel("WINZ26", "NEGS"))
+        self.assertFalse(t.ativa_estavel("WINZ26", "NEGS"))  # FALHAS_MAX seguidas: fechada
+
+    def test_janela_nunca_ativa_continua_inativa(self):
+        t = ct.Tryd(lambda: DdeFalso())
+        t.conectar()
+        self.assertFalse(t.ativa_estavel("PETR4", "SAL"))
+
     def test_para_na_primeira_corretora_vazia(self):
         dde = DdeFalso(saldo(["UBS", "XP", "BTG"]))
         t = ct.Tryd(lambda: dde)
