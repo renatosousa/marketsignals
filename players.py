@@ -10,7 +10,6 @@ Series (todas do WINZ26, ts em segundos, hora de Brasilia como epoch "UTC", como
   saldo   posicao liquida acumulada no dia por grupo (contratos): soma de qtd = qtdc - qtdv das corretoras do grupo.
           A soma de todos os grupos e zero (cada negocio tem comprador e vendedor).
   agr     saldo de agressao acumulado por grupo (sagr = agrc - agrv): quem comprou/vendeu a mercado.
-  preco   ultimo negocio da fita em cada ponto.
   rlp     fita: negocios com agressor "RLP". Na fita de 30/10/2026 TODOS os 6.000 negocios RLP tem a mesma corretora
           nas duas pontas (XP, BTG, Genial, Santander...): o RLP e o fluxo do varejo cruzado dentro da corretora com o
           provedor de liquidez, entao o saldo liquido por grupo seria sempre zero. Mede-se o volume: RLP acumulado por
@@ -82,35 +81,64 @@ def saldo_por_grupo(linhas):
     return ts_ms, series, ultima, tem_agr
 
 
-def agressao_da_fita(fita, bins_s=60):
+def agressao_da_fita(agg, bins_min=1):
     """ESTIMATIVA do saldo de agressao pela fita, para quando a janela de saldo do Tryd nao preenche as colunas de agressao
     (3/11/2026). Negocio com agressor "Comprador": a corretora compradora comprou a mercado (+qtd); "Vendedor": a vendedora
     vendeu a mercado (-qtd); RLP, Direto e Leilao nao entram. So conta o que a fita capturou (35-75% dos negocios) e o
-    erro cresce com a rajada: serve para a direcao, nao para o valor. -> ({t, series:{grupo: acumulado}}, {corretora: saldo},
-    cobertura 0-1)."""
-    if not fita:
-        return {"t": [], "series": {}}, {}, None
-    faixas = sorted({(r[0] // 1000) // bins_s for r in fita})
+    erro cresce com a rajada: serve para a direcao, nao para o valor.
+    agg = [(minuto, comprador, vendedor, agressor, soma_qtd, n)] (fita_agregada) -> ({t, series:{grupo: acumulado}},
+    {corretora: saldo})."""
+    if not agg:
+        return {"t": [], "series": {}}, {}
+    faixas = sorted({r[0] // bins_min for r in agg})
     pos = {f: i for i, f in enumerate(faixas)}
     por_grupo = {g: np.zeros(len(faixas)) for g in GRUPOS}
     por_brk = {}
-    for ts_ms, _, q, _, comp, vend, agr, *_ in fita:
+    for minuto, comp, vend, agr, q, _ in agg:
         q = q or 0
         if agr == "Comprador":
-            por_grupo[grupo(comp)][pos[(ts_ms // 1000) // bins_s]] += q
+            por_grupo[grupo(comp)][pos[minuto // bins_min]] += q
             por_brk[comp] = por_brk.get(comp, 0) + q
         elif agr == "Vendedor":
-            por_grupo[grupo(vend)][pos[(ts_ms // 1000) // bins_s]] -= q
+            por_grupo[grupo(vend)][pos[minuto // bins_min]] -= q
             por_brk[vend] = por_brk.get(vend, 0) - q
-    t = [f * bins_s + bins_s // 2 for f in faixas]
+    t = [f * bins_min * 60 + bins_min * 30 for f in faixas]
     series = {g: np.cumsum(v).tolist() for g, v in por_grupo.items() if np.any(v)}
-    return {"t": t, "series": series}, por_brk, None
+    return {"t": t, "series": series}, por_brk
 
 
-def cobertura_fita(fita):
+_CACHE_FITA = {}  # (ativo, dia) -> {"upto": minuto (exclusivo), "agg": {(minuto, comprador, vendedor, agressor): [qtd, n]}}
+MINUTOS_ABERTOS = 2  # os ultimos minutos sao relidos a cada chamada: negocios descartados na leitura entram na passada seguinte
+
+
+def fita_agregada(con, ativo, dia):
+    """A fita do dia agregada por minuto/corretoras/agressor. Ler os 1,7 milhao de negocios das 11h no Python levava 4 s e
+    crescia; no SQLite sao 2 s por chamada. Aqui os minutos fechados (todos menos os ultimos MINUTOS_ABERTOS) sao somados
+    uma vez e guardados em _CACHE_FITA; cada chamada so le o que veio depois (indice ix_tryd_fita_ts, ver coletor_tryd.py).
+    -> (agg [(minuto, comprador, vendedor, agressor, soma_qtd, n)], n, num_min, num_max)."""
+    ult = con.execute("SELECT ts_ms FROM tryd_fita WHERE ativo=? AND dia=? ORDER BY num DESC LIMIT 1", (ativo, dia)).fetchone()
+    if not ult:
+        return [], 0, None, None
+    n, nmin, nmax = con.execute("SELECT count(*), min(num), max(num) FROM tryd_fita WHERE ativo=? AND dia=?",
+                                (ativo, dia)).fetchone()
+    q = ("SELECT ts_ms / 60000, comprador, vendedor, agressor, sum(qtd), count(*) FROM tryd_fita WHERE ativo=? AND dia=? "
+         "AND ts_ms >= ? AND ts_ms < ? GROUP BY 1, 2, 3, 4")
+    est = _CACHE_FITA.setdefault((ativo, dia), {"upto": 0, "agg": {}})
+    alvo = max(est["upto"], ult[0] // 60000 - MINUTOS_ABERTOS)
+    if alvo > est["upto"]:
+        for m, c, v, ag, qtd, k in con.execute(q, (ativo, dia, est["upto"] * 60000, alvo * 60000)):
+            acc = est["agg"].setdefault((m, c, v, ag), [0, 0])
+            acc[0] += qtd or 0
+            acc[1] += k
+        est["upto"] = alvo
+    agg = [(*k, v[0], v[1]) for k, v in est["agg"].items()]
+    agg += list(con.execute(q, (ativo, dia, est["upto"] * 60000, (ult[0] // 60000 + 2) * 60000)))
+    return agg, n, nmin, nmax
+
+
+def cobertura_fita(n, nmin, nmax):
     """Parte dos negocios que a fita capturou: `num` anda de 10 em 10, entao (max - min) / 10 + 1 e o total esperado."""
-    nums = [r[7] for r in fita if r[7] is not None]
-    return len(nums) / ((max(nums) - min(nums)) // 10 + 1) if len(nums) > 1 else None
+    return n / ((nmax - nmin) // 10 + 1) if n and n > 1 else None
 
 
 def tabela(ultima, rlp_por_brk, agr_est=None):
@@ -126,24 +154,19 @@ def tabela(ultima, rlp_por_brk, agr_est=None):
     return out
 
 
-def fita_rlp(fita, bins_s=300):
-    """fita = [(ts_ms, hora, qtd, preco, comprador, vendedor, agressor)] -> serie de RLP e preco.
-    Por faixa de `bins_s` s: volume total, volume de RLP e volume de RLP por grupo (da corretora
-    compradora; no RLP a compradora e a vendedora sao a mesma)."""
-    if not fita:
-        return {"t": [], "pct_rlp": [], "preco": [], "acumulado": {}}, {}
-    a = np.array([(r[0], r[2] or 0, r[3] or 0) for r in fita], dtype=float)
-    ts = a[:, 0] // 1000
-    faixa = (ts // bins_s).astype(int)
-    faixas = np.unique(faixa)
+def fita_rlp(agg, bins_min=5):
+    """agg (fita_agregada) -> serie de RLP. Por faixa de `bins_min` min: volume total, volume de RLP e volume de
+    RLP por grupo (da corretora compradora; no RLP a compradora e a vendedora sao a mesma)."""
+    if not agg:
+        return {"t": [], "pct_rlp": [], "acumulado": {}}, {}
+    faixas = sorted({r[0] // bins_min for r in agg})
     pos = {f: i for i, f in enumerate(faixas)}
-    vol, vol_rlp, preco = np.zeros(len(faixas)), np.zeros(len(faixas)), np.full(len(faixas), np.nan)
+    vol, vol_rlp = np.zeros(len(faixas)), np.zeros(len(faixas))
     por_grupo = {g: np.zeros(len(faixas)) for g in GRUPOS}
     tot, rlp_b = {}, {}
-    for (ts_ms, _, q, p, comp, vend, agr, *_), f in zip(fita, faixa):
-        i, q = pos[f], q or 0
+    for minuto, comp, vend, agr, q, _ in agg:
+        i, q = pos[minuto // bins_min], q or 0
         vol[i] += q
-        preco[i] = p if p else preco[i]
         for b in (comp, vend):
             tot[b] = tot.get(b, 0) + q
         if agr == "RLP":
@@ -152,9 +175,8 @@ def fita_rlp(fita, bins_s=300):
             for b in (comp, vend):
                 rlp_b[b] = rlp_b.get(b, 0) + q
     pct = {b: rlp_b.get(b, 0) / v for b, v in tot.items() if v}  # parte do volume da corretora que foi RLP
-    t = (faixas * bins_s + bins_s // 2).tolist()
+    t = [f * bins_min * 60 + bins_min * 30 for f in faixas]
     return {"t": t, "pct_rlp": np.where(vol > 0, vol_rlp / np.where(vol > 0, vol, 1), np.nan).tolist(),
-            "preco": preco.tolist(),
             "acumulado": {g: np.cumsum(v).tolist() for g, v in por_grupo.items() if np.any(v)}}, pct
 
 
@@ -171,18 +193,17 @@ def montar(con, dia, ativo="WINZ26"):
     if not linhas:
         return {"vazio": True, "ativo": ativo, "dia": dia}
     ts_ms, series, ultima, tem_agr = saldo_por_grupo(linhas)
-    fita = con.execute("SELECT ts_ms, hora, qtd, preco, comprador, vendedor, agressor, num FROM tryd_fita "
-                       "WHERE ativo=? AND dia=? ORDER BY num", (ativo, dia)).fetchall()
-    rlp, pct = fita_rlp(fita)
-    agr_fita, agr_brk, _ = agressao_da_fita(fita) if not tem_agr else (None, None, None)
+    agg, n_fita, nmin, nmax = fita_agregada(con, ativo, dia)
+    rlp, pct = fita_rlp(agg)
+    agr_fita, agr_brk = agressao_da_fita(agg) if not tem_agr else (None, None)
     dias = [r[0] for r in con.execute("SELECT DISTINCT ts_ms / ? FROM tryd_saldo WHERE ativo=? ORDER BY 1", (DIA_MS, ativo))]
     return {
         "ativo": ativo, "dia": dia, "dias": dias,
         "t": [x // 1000 for x in ts_ms], "series": series, "agr_disponivel": tem_agr,
         "foto_inicio": linhas[0][0] // 1000, "foto_fim": ts_ms[-1] // 1000, "fotos": len({r[0] for r in linhas}),
         "rlp": {**rlp, "t": rlp["t"]},
-        "agr_fita": agr_fita, "agr_cobertura_fita": cobertura_fita(fita) if agr_fita else None,
+        "agr_fita": agr_fita, "agr_cobertura_fita": cobertura_fita(n_fita, nmin, nmax) if agr_fita else None,
         "corretoras": tabela(ultima, pct, agr_brk if agr_fita else None),
         "grupos": {g: DESCRICAO[g] for g in GRUPOS},
-        "negocios_fita": len(fita),
+        "negocios_fita": n_fita,
     }

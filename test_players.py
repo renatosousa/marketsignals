@@ -22,6 +22,9 @@ def banco(saldo, fita=()):
 
 
 class TestSaldo(unittest.TestCase):
+    def setUp(self):
+        players._CACHE_FITA.clear()
+
     def test_grupos_somam_zero_e_corretora_nova_comeca_em_zero(self):
         saldo = [(T0, "Goldman", 10, 4, 10, 0), (T0, "XP", -10, -4, 0, 10),
                  (T0 + 10_000, "Goldman", 30, 9, 30, 0), (T0 + 10_000, "XP", -25, -9, 5, 30),
@@ -78,6 +81,24 @@ DIA_MS = players.DIA_MS
 
 
 class TestRlp(unittest.TestCase):
+    def setUp(self):
+        players._CACHE_FITA.clear()
+
+    def test_agregacao_incremental_igual_a_completa(self):
+        # 40 minutos de negocios; a 2a chamada ja traz minutos fechados em cache e a 3a recebe negocios novos
+        fita = [(DIA, "WINZ26", 10 * i, T0 + i * 30_000, "h", 2, 170000, "XP", "Ideal" if i % 3 else "XP",
+                 "Comprador" if i % 2 else "RLP", "=") for i in range(80)]
+        db = banco([(T0, "XP", 1, 1, 1, 0)], fita[:60])
+        r1 = players.montar(db, DIA)
+        r2 = players.montar(db, DIA)
+        self.assertEqual(r1["rlp"], r2["rlp"])
+        db.executemany("INSERT INTO tryd_fita VALUES (?,?,?,?,?,?,?,?,?,?,?)", fita[60:])
+        r3 = players.montar(db, DIA)
+        players._CACHE_FITA.clear()
+        self.assertEqual(r3["rlp"], players.montar(db, DIA)["rlp"])  # igual a agregar tudo de uma vez
+        self.assertEqual(r3["negocios_fita"], 80)
+        self.assertNotEqual(r1["rlp"], r3["rlp"])
+
     def test_rlp_por_grupo_e_percentual(self):
         fita = [(DIA, "WINZ26", 10, T0, "12:00:00.000", 5, 170000, "Goldman", "XP", "RLP", "="),
                 (DIA, "WINZ26", 20, T0 + 1000, "12:00:01.000", 5, 170005, "XP", "Ideal", "Comprador", "+"),
@@ -87,7 +108,6 @@ class TestRlp(unittest.TestCase):
         self.assertEqual(rlp["acumulado"]["Estrangeiro"], [5])  # RLP conta uma vez, na corretora compradora
         self.assertEqual(rlp["acumulado"]["Misto"], [10])
         self.assertAlmostEqual(rlp["pct_rlp"][0], 15 / 20)
-        self.assertEqual(rlp["preco"], [170010])
         xp = {c["corretora"]: c for c in r["corretoras"]}["XP"]
         self.assertAlmostEqual(xp["rlp"], 15 / 20)  # XP: 15 dos 20 contratos que viu na fita eram RLP
 

@@ -40,6 +40,7 @@ import wyckoff
 AQUI = Path(__file__).parent
 PONTOS = 600            # pontos por serie temporal (define o tamanho do balde)
 CACHE_S = 3.0
+CACHE_PLAYERS_S = 10.0  # o saldo do Tryd muda a cada 10 s
 INICIO_PREGAO_H = 9
 
 # macro: graficos de variacao % (no maximo 4 series cada) e ativos da tabela de correlacao
@@ -377,6 +378,7 @@ class App:
         self.db = db
         self.cache = {}
         self.lock = threading.Lock()
+        self.lock_players = threading.Lock()  # a consulta da fita e longa: nao pode segurar os outros endpoints
         self.graf = gq.Grafico()
 
     def grafico(self, tf, dia, ativo="WIN"):
@@ -405,10 +407,10 @@ class App:
 
     def players(self, dia):
         """JSON do /api/players (cache curto: o saldo do Tryd muda a cada 10 s)."""
-        with self.lock:
+        with self.lock_players:
             chave = ("p", dia)
             hit = self.cache.get(chave)
-            if hit and time.time() - hit[0] < CACHE_S:
+            if hit and time.time() - hit[0] < CACHE_PLAYERS_S:
                 return hit[1]
             con = sqlite3.connect(f"file:{self.db}?mode=ro", uri=True, timeout=10)
             try:

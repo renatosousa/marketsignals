@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS tryd_fita (
     comprador TEXT, vendedor TEXT, agressor TEXT, var TEXT,
     PRIMARY KEY (dia, ativo, num)
 );
+CREATE INDEX IF NOT EXISTS ix_tryd_fita_ts ON tryd_fita (dia, ativo, ts_ms);  -- /players agrega a fita so do que veio depois
 """
 
 
