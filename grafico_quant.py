@@ -146,8 +146,11 @@ def barras(s, tf_min):
     """OHLC do ultimo negocio, volume agredido, delta, OFI e profundidade media do topo por barra."""
     tf = tf_min * 60_000
     g = s.assign(t=s.ts_ms // tf * tf, v=s.vc + s.vv, d=s.vc - s.vv).groupby("t")
-    return g.agg(o=("last", "first"), h=("last", "max"), l=("last", "min"), c=("last", "last"), v=("v", "sum"),
-                 delta=("d", "sum"), ofi=("e", "sum"), prof=("prof", "mean")).reset_index()
+    b = g.agg(o=("last", "first"), h=("last", "max"), l=("last", "min"), c=("last", "last"), v=("v", "sum"),
+              delta=("d", "sum"), ofi=("e", "sum"), prof=("prof", "mean")).reset_index()
+    cols = ["o", "h", "l", "c", "v", "delta"]  # colunas "object" (3/11/2026, WDO) viravam divisao em Python: ZeroDivisionError
+    b[cols] = b[cols].apply(pd.to_numeric, errors="coerce").astype(float)
+    return b
 
 
 def vwap(s):

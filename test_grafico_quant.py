@@ -44,6 +44,16 @@ class TestPerfilVwap(unittest.TestCase):
         self.assertGreater(z[0]["hi"], 2000.0)
 
 
+class TestBarrasObject(unittest.TestCase):
+    def test_colunas_object_viram_float_e_atr_nao_divide_em_python(self):
+        # WDO de 3/11/2026: barras de hoje com tipo "object" faziam o ATR dividir em Python (ZeroDivisionError)
+        s = segs([5500.0, 5501.0, 5501.0], [1, 0, 0], [0, 0, 0])
+        s["last"] = s["last"].astype(object)
+        b = gq.barras(s, 5)
+        self.assertTrue(all(str(b[c].dtype) == "float64" for c in ["o", "h", "l", "c", "v", "delta"]))
+        gq.atr_dinamico(pd.concat([b] * 30, ignore_index=True))  # nao levanta
+
+
 class TestAtrOu(unittest.TestCase):
     def barras_ruido(self, n=400, seed=1):
         rng = np.random.default_rng(seed)
