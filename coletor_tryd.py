@@ -35,6 +35,7 @@ SALDO_CAMPOS = ["BRK", "VOL", "QTD", "PREMED", "AGRC", "AGRV", "SAGR", "SPAS", "
 FITA_CAMPOS = ["DAT", "QUL", "PRE", "ACP", "AVD", "AGR", "VAR"]  # + NUM, lido a parte
 LINHAS_SALDO, LINHAS_FITA = 500, 100  # a janela de negocios guarda 100 linhas (era 31 ate 3/11/2026)
 FALHAS_MAX = 3  # testes seguidos sem o ativo para dar a janela como fechada (ver ativa_estavel)
+LEITURAS_LINHA = 3  # tentativas por linha de saldo vazia/incoerente (ver Tryd.linha_saldo)
 VISTOS_MAX = 50_000  # numeros de negocio lembrados por ativo (o `num` so cresce dentro do dia)
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tryd_saldo (
@@ -88,11 +89,27 @@ class Tryd:
                 self.estado[chave] = False
         return self.estado[chave]
 
+    def linha_saldo(self, ativo, i):
+        """Campos da linha i (SALDO_CAMPOS). A tabela e ordenada por volume e o Tryd a redesenha enquanto e lida: em
+        3/11/2026, 4% das linhas do WINZ26 vieram com VOL/QTD/QTDC/QTDV vazios ou com qtd != qtdc - qtdv, e a corretora
+        "zerava" por uma foto (saltos de ate 70 mil contratos no grupo). Linha assim, ou cuja corretora mudou durante a
+        leitura, e relida ate LEITURAS_LINHA vezes; se nao firmar, fica a ultima leitura (players.py usa o valor anterior)."""
+        k = {c: j for j, c in enumerate(SALDO_CAMPOS)}
+        for _ in range(LEITURAS_LINHA):
+            vals = [self._ler(f"{ativo}_SAL.{c}.{i}") for c in SALDO_CAMPOS]
+            if vazio(vals[0]):
+                return vals
+            nums = [vals[k[c]] for c in ("VOL", "QTD", "QTDC", "QTDV")]
+            if all(isinstance(x, (int, float)) for x in nums) and abs(nums[1] - (nums[2] - nums[3])) < 0.5 \
+                    and self._ler(f"{ativo}_SAL.BRK.{i}") == vals[0]:
+                return vals
+        return vals
+
     def saldo(self, ts, ativo):
         """[(ts, ativo, linha, *campos)] das corretoras da janela; a tabela termina na primeira corretora vazia."""
         linhas = []
         for i in range(LINHAS_SALDO):
-            vals = [self._ler(f"{ativo}_SAL.{c}.{i}") for c in SALDO_CAMPOS]
+            vals = self.linha_saldo(ativo, i)
             if vazio(vals[0]):
                 break
             # celula vazia (coluna que a janela do Tryd nao preenche, ex.: agressao em 3/11/2026) vira NULL

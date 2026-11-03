@@ -12,7 +12,7 @@
   --page: #f9f9f7; --surface: #fcfcfb; --panel: #f3f3f0; --border: rgba(11,11,11,0.10);
   --ink: #0b0b0b; --ink-2: #52514e; --muted: #6f6d68;
   --grid: #e8e7e1; --axis: #c3c2b7; --wash: rgba(11,11,11,0.05); --wash-2: rgba(11,11,11,0.09);
-  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #6250d6; --s6: #8a8984;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #6250d6; --s6: #8a8984; --s7: #e87ba4; --s8: #008300; --s9: #e34948;
   --warn: #fab219;
   --fonte: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
@@ -22,7 +22,7 @@
     --page: #0d0d0d; --surface: #1a1a19; --panel: #141413; --border: rgba(255,255,255,0.10);
     --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a988f;
     --grid: #262624; --axis: #383835; --wash: rgba(255,255,255,0.06); --wash-2: rgba(255,255,255,0.10);
-    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9085e9; --s6: #8a8984;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9085e9; --s6: #8a8984; --s7: #d55181; --s8: #008300; --s9: #e66767;
   }
 }
 :root[data-theme="dark"] {
@@ -30,7 +30,7 @@
   --page: #0d0d0d; --surface: #1a1a19; --panel: #141413; --border: rgba(255,255,255,0.10);
   --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a988f;
   --grid: #262624; --axis: #383835; --wash: rgba(255,255,255,0.06); --wash-2: rgba(255,255,255,0.10);
-  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9085e9; --s6: #8a8984;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9085e9; --s6: #8a8984; --s7: #d55181; --s8: #008300; --s9: #e66767;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 var(--fonte); }
@@ -133,17 +133,22 @@ details.metodo p { max-width: 90ch; margin: 6px 0; }
   <details class="metodo">
     <summary>O que este gráfico mostra e o que não mostra</summary>
     <p><b>Fonte.</b> Saldo por corretora e fita de negócios do Tryd (DDE), gravados por coletor_tryd.py: uma foto do saldo a cada 10 s e cada negócio da fita com corretora compradora, vendedora e agressor.</p>
-    <p><b>Corretora não é tipo de investidor.</b> O agrupamento é uma hipótese: Estrangeiro = bancos globais; Institucional = bancos e gestoras locais; Varejo = plataformas de pessoa física; Misto = XP, BTG, Genial e Santander, que atendem pessoa física e institucional juntos. Um fundo estrangeiro que opera pela XP aparece em Misto. O mapa só pode ser testado contra o fluxo por tipo de investidor que a B3 publica (só ações, com 2 pregões de atraso); isso exige semanas de coleta de PETR4, VALE3, ITUB4, BBDC4 e BOVA11.</p>
+    <p><b>Corretora não é tipo de investidor.</b> O agrupamento é uma hipótese: Estrangeiro = bancos globais; Institucional = bancos e gestoras locais; Varejo = plataformas de pessoa física; XP, BTG e Genial aparecem cada uma sozinha (linhas tracejadas) e Misto = Santander: atendem pessoa física e institucional juntos. Um fundo estrangeiro que opera pela XP aparece na XP. O mapa só pode ser testado contra o fluxo por tipo de investidor que a B3 publica (só ações, com 2 pregões de atraso); isso exige semanas de coleta de PETR4, VALE3, ITUB4, BBDC4 e BOVA11.</p>
     <p><b>RLP.</b> Na fita, todo negócio RLP tem a mesma corretora nas duas pontas: é o fluxo do varejo da corretora cruzado com o provedor de liquidez. Por isso não há saldo líquido de RLP por grupo; mede-se o volume e a parte do volume de cada corretora que foi RLP (quanto maior, mais varejo).</p>
     <p><b>Market maker e HFT.</b> A B3 não publica; não há como validar. A coluna <i>Giro</i> (volume negociado ÷ |saldo|) só indica quem opera dos dois lados e termina o dia perto de zero.</p>
     <p><b>Limites da fita.</b> A janela do Tryd guarda 31 negócios e se redesenha ~4 vezes por segundo; nos picos parte da fita se perde. O saldo por corretora vem do total acumulado do dia, sem perda.</p>
+    <p><b>Células vazias.</b> No meio do redesenho o Tryd às vezes devolve a linha de uma corretora vazia (em 3/11/2026, 4% das linhas do WIN; nunca no WDO). Como o saldo é acumulado no dia, vale o último valor lido dela; antes disso o grupo "zerava" a corretora por 10 s e voltava.</p>
     <p>Nada aqui foi testado como sinal de entrada.</p>
   </details>
 </main>
 
 <script>
-const ORDEM = ["Estrangeiro", "Institucional", "Varejo", "Misto", "Liquidez", "Outros"];
-const COR = { Estrangeiro: "--s1", Institucional: "--s3", Varejo: "--s2", Misto: "--s5", Liquidez: "--s4", Outros: "--s6" };
+const ORDEM = ["Estrangeiro", "Institucional", "Varejo", "XP", "BTG", "Genial", "Misto", "Liquidez", "Outros"];
+const COR = { Estrangeiro: "--s1", Institucional: "--s3", Varejo: "--s2", XP: "--s5", BTG: "--s7", Genial: "--s8", Misto: "--s9",
+              Liquidez: "--s4", Outros: "--s6" };
+// 9 linhas no mesmo grafico nao se separam so pela cor: as corretoras do antigo Misto (XP, BTG, Genial, Santander) sao tracejadas
+const TRACO = new Set(["XP", "BTG", "Genial", "Misto"]);
+const icone = g => TRACO.has(g) ? `repeating-linear-gradient(90deg, ${css(COR[g])} 0 4px, transparent 4px 6px)` : css(COR[g]);
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const nf0 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 });
@@ -167,7 +172,7 @@ function grafico(id, x, series, o = {}) {
     cursor: { sync: { key: "players" }, points: { size: 8 } },
     legend: { live: true },
     series: [{ value: (u, v) => v == null ? "–" : hora(v) },
-      ...vis.map(s => ({ label: s.nome, stroke: css(COR[s.nome]), width: 2, spanGaps: true,
+      ...vis.map(s => ({ label: s.nome, stroke: css(COR[s.nome]), width: 2, spanGaps: true, dash: TRACO.has(s.nome) ? [6, 3] : undefined,
                          points: { show: x.length < 40, size: 6 },
                          value: (u, v) => v == null ? "–" : (o.fmt || nf0.format)(v) }))],
     axes: [
@@ -203,7 +208,7 @@ function desenhar() {
   const d = dados;
   const grupos = ORDEM.filter(g => d.series[g] || (d.rlp.acumulado || {})[g]);
   document.getElementById("legenda").innerHTML = grupos.map(g =>
-    `<button data-g="${g}" aria-pressed="${!escondidos.has(g)}" title="${d.grupos[g]}"><i style="background:${css(COR[g])}"></i>${g}</button>`).join("");
+    `<button data-g="${g}" aria-pressed="${!escondidos.has(g)}" title="${d.grupos[g]}"><i style="background:${icone(g)}"></i>${g}</button>`).join("");
   document.querySelectorAll("#legenda button").forEach(b => b.onclick = () => {
     const g = b.dataset.g; escondidos.has(g) ? escondidos.delete(g) : escondidos.add(g); desenhar();
   });
@@ -236,7 +241,7 @@ function tabela(d) {
   const cl = v => v == null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "";
   document.getElementById("u-tab").textContent = `foto das ${hora(d.foto_fim)} · contratos` + (d.agr_fita ? " · * agressão estimada pela fita" : "");
   document.getElementById("tab").innerHTML = `<table><thead><tr><th>Corretora</th><th>Grupo</th><th>Saldo</th><th>Agressão${d.agr_fita ? "*" : ""}</th><th>Volume</th><th>Giro</th><th>% RLP</th></tr></thead><tbody>` +
-    d.corretoras.map(c => `<tr><td>${c.corretora}</td><td><i style="background:${css(COR[c.grupo])}"></i>${c.grupo}</td>
+    d.corretoras.map(c => `<tr><td>${c.corretora}</td><td><i style="background:${icone(c.grupo)}"></i>${c.grupo}</td>
       <td class="${cl(c.saldo)}">${nf0.format(c.saldo)}</td><td class="${cl(c.agr)}">${nf0.format(c.agr)}${d.agr_fita ? "*" : ""}</td>
       <td>${nf0.format(c.volume)}</td><td>${c.giro == null ? "–" : nf0.format(c.giro)}</td>
       <td>${c.rlp == null ? "–" : nf0.format(c.rlp * 100) + "%"}</td></tr>`).join("") + "</tbody></table>";

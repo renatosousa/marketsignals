@@ -32,20 +32,35 @@ class TestSaldo(unittest.TestCase):
         r = players.montar(banco(saldo), DIA)
         self.assertEqual(r["t"], [T0 // 1000, T0 // 1000 + 10])
         self.assertEqual(r["series"]["Estrangeiro"]["saldo"], [10, 30])
-        self.assertEqual(r["series"]["Misto"]["saldo"], [-10, -25])
+        self.assertEqual(r["series"]["XP"]["saldo"], [-10, -25])
         self.assertEqual(r["series"]["Outros"]["saldo"], [0, -5])  # Zzz so aparece na 2a foto
         for i in range(2):
             self.assertEqual(sum(s["saldo"][i] for s in r["series"].values()), 0)
         self.assertEqual(r["corretoras"][0]["corretora"], "XP")  # maior volume
 
+    def test_xp_btg_genial_tem_grupo_proprio(self):
+        self.assertEqual([players.grupo(b) for b in ("XP", "BTG", "Genial", "Santander")], ["XP", "BTG", "Genial", "Misto"])
+
+    def test_celula_vazia_ou_incoerente_mantem_o_valor_anterior(self):
+        # 3/11/2026: UBS vinha com qtd vazia numa foto e o Estrangeiro "saltava" para zero e voltava
+        saldo = [(T0, "UBS", -30, None, 10, 40), (T0, "XP", 30, None, 40, 10),
+                 (T0 + 10_000, "UBS", None, None, None, None), (T0 + 10_000, "XP", 31, None, 41, 10),
+                 (T0 + 20_000, "UBS", -5, None, 10, 40), (T0 + 20_000, "XP", 32, None, 42, 10),   # -5 != 10 - 40
+                 (T0 + 30_000, "XP", 33, None, 43, 10),                                           # UBS fora da foto
+                 (T0 + 40_000, "UBS", -34, None, 10, 44), (T0 + 40_000, "XP", 34, None, 44, 10)]
+        r = players.montar(banco(saldo), DIA)
+        self.assertEqual(r["series"]["Estrangeiro"]["saldo"], [-30, -30, -30, -30, -34])
+        ubs = {c["corretora"]: c for c in r["corretoras"]}["UBS"]
+        self.assertEqual((ubs["saldo"], ubs["volume"]), (-34, 54))
+
     def test_agressao_vazia_nao_vira_serie_de_zeros(self):
         saldo = [(T0, "XP", 5, "", 5, 0), (T0 + 10_000, "XP", 7, None, 7, 0)]
         r = players.montar(banco(saldo), DIA)
         self.assertFalse(r["agr_disponivel"])
-        self.assertNotIn("agr", r["series"]["Misto"])
+        self.assertNotIn("agr", r["series"]["XP"])
         r = players.montar(banco([(T0, "XP", 5, -3, 5, 0)]), DIA)
         self.assertTrue(r["agr_disponivel"])
-        self.assertEqual(r["series"]["Misto"]["agr"], [-3])
+        self.assertEqual(r["series"]["XP"]["agr"], [-3])
 
     def test_agressao_estimada_pela_fita_quando_a_janela_nao_manda(self):
         fita = [(DIA, "WINZ26", 10, T0, "12:00:00.000", 5, 170000, "Goldman", "XP", "Comprador", "+"),
@@ -56,7 +71,7 @@ class TestSaldo(unittest.TestCase):
         self.assertFalse(r["agr_disponivel"])
         est = r["agr_fita"]["series"]
         self.assertEqual(est["Estrangeiro"], [2])   # Goldman comprou 5 a mercado e vendeu 3 a mercado
-        self.assertEqual(est["Misto"], [2])         # BTG comprou 2 a mercado; RLP nao entra
+        self.assertEqual(est["BTG"], [2])           # BTG comprou 2 a mercado; RLP nao entra
         self.assertAlmostEqual(r["agr_cobertura_fita"], 4 / 5)  # num 10..50: 5 esperados, 4 capturados
         gold = {c["corretora"]: c for c in r["corretoras"]}["Goldman"]
         self.assertEqual(gold["agr"], 2)
@@ -74,7 +89,7 @@ class TestSaldo(unittest.TestCase):
         saldo = [(T0 + i * 10_000, "XP", i, 0, i, 0) for i in range(2000)]
         r = players.montar(banco(saldo), DIA)
         self.assertLessEqual(len(r["t"]), players.PONTOS)
-        self.assertEqual(r["series"]["Misto"]["saldo"][-1], 1999)  # inclui a ultima foto
+        self.assertEqual(r["series"]["XP"]["saldo"][-1], 1999)  # inclui a ultima foto
 
 
 DIA_MS = players.DIA_MS
@@ -106,7 +121,7 @@ class TestRlp(unittest.TestCase):
         r = players.montar(banco([(T0, "XP", 1, 1, 1, 0)], fita), DIA)
         rlp = r["rlp"]
         self.assertEqual(rlp["acumulado"]["Estrangeiro"], [5])  # RLP conta uma vez, na corretora compradora
-        self.assertEqual(rlp["acumulado"]["Misto"], [10])
+        self.assertEqual(rlp["acumulado"]["XP"], [10])
         self.assertAlmostEqual(rlp["pct_rlp"][0], 15 / 20)
         xp = {c["corretora"]: c for c in r["corretoras"]}["XP"]
         self.assertAlmostEqual(xp["rlp"], 15 / 20)  # XP: 15 dos 20 contratos que viu na fita eram RLP

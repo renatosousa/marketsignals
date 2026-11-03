@@ -1,7 +1,8 @@
 """Evolucao dos players do WIN no dia, das corretoras do Tryd (coletor_tryd.py: tryd_saldo e tryd_fita) -> pagina /players.
 
 Corretora NAO e tipo de investidor. O mapa abaixo e um PRIOR (hipotese de quem costuma operar por cada casa), nao um
-dado: XP, BTG, Genial e Ideal misturam pessoa fisica e institucional; so os bancos globais sugerem estrangeiro. A B3
+dado: XP, BTG, Genial e Ideal misturam pessoa fisica e institucional (XP, BTG e Genial, as maiores, tem grupo proprio para
+nao esconder uma atras da outra); so os bancos globais sugerem estrangeiro. A B3
 publica o fluxo por tipo de investidor apenas das acoes, com 2 pregoes de atraso (fluxo_estrangeiro.py), e e com elas que
 o mapa deve ser ajustado e validado quando houver semanas de coleta. Market maker/HFT nao e publicado pela B3: aqui so
 aparece o giro de cada corretora (volume negociado / |saldo|), que e um sinal de quem opera dos dois lados, nao uma prova.
@@ -21,12 +22,15 @@ import numpy as np
 
 DIA_MS = 86_400_000
 PONTOS = 600
-GRUPOS = ["Estrangeiro", "Institucional", "Varejo", "Misto", "Liquidez", "Outros"]
+GRUPOS = ["Estrangeiro", "Institucional", "Varejo", "XP", "BTG", "Genial", "Misto", "Liquidez", "Outros"]
 DESCRICAO = {
     "Estrangeiro": "bancos globais (Goldman, Morgan Stanley, JP Morgan, UBS, Merrill, Citi)",
     "Institucional": "bancos e gestoras locais (Itau, Santander Institucional, Safra, ABN...)",
     "Varejo": "plataformas de pessoa fisica (Ideal, Agora, Inter, Ativa, Nova Futura, C6...)",
-    "Misto": "XP, BTG, Genial, Santander: pessoa fisica e institucional juntos",
+    "XP": "XP sozinha: pessoa fisica e institucional juntos",
+    "BTG": "BTG sozinho: pessoa fisica e institucional juntos",
+    "Genial": "Genial sozinha: pessoa fisica e institucional juntos",
+    "Misto": "Santander: pessoa fisica e institucional juntos (XP, BTG e Genial tem grupo proprio)",
     "Liquidez": "intermediadoras (Tullett, BGC Liquidez)",
     "Outros": "corretoras sem grupo no mapa",
 }
@@ -38,7 +42,7 @@ MAPA = {
     "Ideal": "Varejo", "Agora": "Varejo", "Inter": "Varejo", "Ativa": "Varejo", "Nova Futura": "Varejo",
     "C6": "Varejo", "Terra": "Varejo", "Necton": "Varejo", "Mirae": "Varejo", "Warren Rena": "Varejo",
     "CM Capital": "Varejo", "PAGINVEST": "Varejo", "LEV": "Varejo",
-    "XP": "Misto", "BTG": "Misto", "Genial": "Misto", "Santander": "Misto",
+    "XP": "XP", "BTG": "BTG", "Genial": "Genial", "Santander": "Misto",
     "Tullett": "Liquidez", "BGC Liquidez": "Liquidez",
 }
 
@@ -56,28 +60,45 @@ def _reduzir(ts, pontos=PONTOS):
     return idx
 
 
+def _num(v):
+    return None if v is None or v == "" else v
+
+
 def saldo_por_grupo(linhas):
     """linhas = [(ts_ms, brk, qtd, sagr, qtdc, qtdv)] de um dia -> (ts_ms, {grupo: {"saldo": [], "agr": []}}, ultima foto, tem_agr).
     `agr` so entra se a janela do Tryd preencher as colunas de agressao (3/11/2026 vieram vazias o dia todo).
-    Uma corretora que ainda nao apareceu na tabela vale 0 (a tabela so lista quem ja operou)."""
+    Uma corretora que ainda nao apareceu na tabela vale 0 (a tabela so lista quem ja operou).
+    Celula vazia ou linha incoerente (qtd != qtdc - qtdv) vale o ultimo valor lido da corretora: o saldo e acumulado no
+    dia e nao zera. Em 3/11/2026 o Tryd devolveu celulas vazias em 4% das linhas do WINZ26 (36% das fotos, nunca no WDO):
+    a corretora "zerava" por uma foto e voltava, e o grupo dava saltos de ida e volta de 3 a 70 mil contratos (UBS,
+    Morgan, Goldman, Safra, Itau, ABN)."""
     if not linhas:
-        return [], {}, []
+        return [], {}, {}, False
     por_ts, tem_agr = {}, False
     for ts, brk, qtd, sagr, qtdc, qtdv in linhas:
-        tem_agr = tem_agr or sagr not in (None, "")
-        por_ts.setdefault(ts, {})[brk] = (qtd or 0.0, sagr or 0.0, qtdc or 0.0, qtdv or 0.0)
+        por_ts.setdefault(ts, []).append((brk, _num(qtd), _num(sagr), _num(qtdc), _num(qtdv)))
     tempos = sorted(por_ts)
     saldo = {g: np.zeros(len(tempos)) for g in GRUPOS}
     agr = {g: np.zeros(len(tempos)) for g in GRUPOS}
+    atual = {}  # corretora -> [qtd, sagr, qtdc, qtdv]: o ultimo valor valido de cada campo
     for i, ts in enumerate(tempos):
-        for brk, (q, s, _, _) in por_ts[ts].items():
+        for brk, q, s, c, v in por_ts[ts]:
+            a = atual.setdefault(brk, [0.0, 0.0, 0.0, 0.0])
+            incoerente = None not in (q, c, v) and abs(q - (c - v)) >= 0.5  # lida enquanto a janela mudava
+            if not incoerente:
+                for j, x in ((0, q), (2, c), (3, v)):
+                    if x is not None:
+                        a[j] = x
+            if s is not None:
+                a[1], tem_agr = s, True
+        for brk, (q, s, _, _) in atual.items():
             saldo[grupo(brk)][i] += q
             agr[grupo(brk)][i] += s
     idx = _reduzir(tempos)
     ts_ms = [tempos[i] for i in idx]
     series = {g: {"saldo": saldo[g][idx].tolist(), **({"agr": agr[g][idx].tolist()} if tem_agr else {})} for g in GRUPOS
               if np.any(saldo[g]) or np.any(agr[g])}
-    ultima = por_ts[tempos[-1]]
+    ultima = {brk: tuple(a) for brk, a in atual.items()}
     return ts_ms, series, ultima, tem_agr
 
 

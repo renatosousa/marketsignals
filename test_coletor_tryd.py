@@ -32,8 +32,8 @@ def saldo(corretoras, ativo="WINZ26"):
     d = {f"{ativo}_SAL.INFO.ATV": ativo}
     for i, nome in enumerate(corretoras):
         for c in ct.SALDO_CAMPOS:
-            d[f"{ativo}_SAL.{c}.{i}"] = nome if c == "BRK" else "1,5" if c == "PREMED" else str(i + 1)
-    return d
+            d[f"{ativo}_SAL.{c}.{i}"] = nome if c == "BRK" else "1,5" if c == "PREMED" else "0" if c == "QTDV" else str(i + 1)
+    return d  # qtd = qtdc - qtdv, como no Tryd
 
 
 def fita(nums, ativo="WINZ26", agressor="Comprador"):
@@ -87,6 +87,31 @@ class TestSaldo(unittest.TestCase):
         linha = t.saldo(TS, "WINZ26")[0]
         self.assertIsNone(linha[3 + ct.SALDO_CAMPOS.index("SAGR")])
         self.assertEqual(linha[3], "UBS")
+
+    def test_rele_linha_vazia_ou_incoerente(self):
+        d = saldo(["UBS", "XP"])
+        certo = dict(d)
+        d["WINZ26_SAL.QTD.0"] = ""      # celula vazia no redesenho
+        d["WINZ26_SAL.QTDV.1"] = "9"    # qtd != qtdc - qtdv
+        def ao_ler(dde, item):          # na 2a leitura da linha a janela ja terminou de redesenhar
+            if item.startswith("WINZ26_SAL.BRK.") and dde.lidos.count(item) == 2:
+                linha = item.rsplit(".", 1)[1]
+                dde.itens.update({k: v for k, v in certo.items() if k.endswith("." + linha)})
+        t = ct.Tryd(lambda: DdeFalso(d, ao_ler))
+        t.conectar()
+        ls = t.saldo(TS, "WINZ26")
+        q = 3 + ct.SALDO_CAMPOS.index("QTD")
+        self.assertEqual([(r[3], r[q]) for r in ls], [("UBS", 1), ("XP", 2)])
+
+    def test_linha_que_nao_firma_fica_com_a_ultima_leitura(self):
+        d = saldo(["UBS"])
+        d["WINZ26_SAL.QTD.0"] = ""
+        dde = DdeFalso(d)
+        t = ct.Tryd(lambda: dde)
+        t.conectar()
+        linha = t.saldo(TS, "WINZ26")[0]
+        self.assertIsNone(linha[3 + ct.SALDO_CAMPOS.index("QTD")])
+        self.assertEqual(dde.lidos.count("WINZ26_SAL.QTD.0"), ct.LEITURAS_LINHA)
 
     def test_para_na_primeira_corretora_vazia(self):
         dde = DdeFalso(saldo(["UBS", "XP", "BTG"]))
