@@ -199,6 +199,11 @@ def main():
                 if t >= prox_saldo:  # foto do saldo e reteste das janelas
                     prox_saldo = t + args.saldo
                     foto(ts, ativos, ("SAL", "NEGS"))
+                    if not any(ativas.values()):
+                        # nenhuma janela responde: a conversa DDE pode ter morrido com a exportacao religada no Tryd
+                        # (4/11/2026: das 08:55 em diante tudo None ate reiniciar o coletor). Reabre na proxima volta.
+                        tryd.fechar()
+                        continue
                 if t >= prox_acoes and acoes:
                     prox_acoes = t + args.saldo_acoes
                     foto(ts, acoes, ("SAL",))
