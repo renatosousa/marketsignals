@@ -103,6 +103,15 @@ class TestSaldo(unittest.TestCase):
         q = 3 + ct.SALDO_CAMPOS.index("QTD")
         self.assertEqual([(r[3], r[q]) for r in ls], [("UBS", 1), ("XP", 2)])
 
+    def test_texto_em_coluna_de_numero_vira_null(self):
+        d = saldo(["UBS"])
+        d["WINZ26_SAL.VOLC.0"] = "Accessibility" + chr(13) + chr(10) + "Accessories"  # resposta de outro servidor DDE
+        t = ct.Tryd(lambda: DdeFalso(d))
+        t.conectar()
+        linha = t.saldo(TS, "WINZ26")[0]
+        self.assertIsNone(linha[3 + ct.SALDO_CAMPOS.index("VOLC")])
+        self.assertEqual(linha[3 + ct.SALDO_CAMPOS.index("QTD")], 1)
+
     def test_linha_que_nao_firma_fica_com_a_ultima_leitura(self):
         d = saldo(["UBS"])
         d["WINZ26_SAL.QTD.0"] = ""

@@ -61,7 +61,7 @@ def _reduzir(ts, pontos=PONTOS):
 
 
 def _num(v):
-    return None if v is None or v == "" else v
+    return v if isinstance(v, (int, float)) else None  # vazio ou texto (DDE instavel) = sem leitura
 
 
 def saldo_por_grupo(linhas):

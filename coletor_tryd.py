@@ -112,8 +112,9 @@ class Tryd:
             vals = self.linha_saldo(ativo, i)
             if vazio(vals[0]):
                 break
-            # celula vazia (coluna que a janela do Tryd nao preenche, ex.: agressao em 3/11/2026) vira NULL
-            linhas.append((ts, ativo, i, *(None if vazio(v) and j else v for j, v in enumerate(vals))))
+            # celula vazia (coluna que a janela do Tryd nao preenche, ex.: agressao em 3/11/2026) ou texto numa coluna de
+            # numero (4/11/2026: com o DDE instavel veio a lista de pastas do Menu Iniciar) vira NULL
+            linhas.append((ts, ativo, i, *(v if j == 0 or isinstance(v, (int, float)) else None for j, v in enumerate(vals))))
         return linhas
 
     def fita(self, ts, ativo):
