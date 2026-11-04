@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leilões do Tesouro</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css">
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --panel: #f3f3f0; --border: rgba(11,11,11,0.10);
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #6f6d68;
+  --grid: #e8e7e1; --axis: #c3c2b7; --wash: rgba(11,11,11,0.05); --wash-2: rgba(11,11,11,0.09);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #6250d6;
+  --warn: #fab219; --neg: #c62c2b;
+  --fonte: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --panel: #141413; --border: rgba(255,255,255,0.10);
+    --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a988f;
+    --grid: #262624; --axis: #383835; --wash: rgba(255,255,255,0.06); --wash-2: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9085e9; --neg: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --panel: #141413; --border: rgba(255,255,255,0.10);
+  --ink: #f0efec; --ink-2: #c3c2b7; --muted: #9a988f;
+  --grid: #262624; --axis: #383835; --wash: rgba(255,255,255,0.06); --wash-2: rgba(255,255,255,0.10);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #9085e9; --neg: #e66767;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 var(--fonte); }
+main { max-width: 1400px; margin: 0 auto; padding: 12px 16px 48px; }
+h1 { font-size: 20px; margin: 0; font-weight: 700; letter-spacing: -0.01em; }
+a { color: var(--s1); text-underline-offset: 3px; }
+.paginas { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.paginas a { font-size: 13px; color: var(--ink-2); text-decoration: none; padding: 5px 12px; border-radius: 8px; }
+.paginas a:hover { background: var(--wash); color: var(--ink); }
+.paginas a[aria-current="page"] { color: var(--ink); font-weight: 650; background: var(--wash-2); }
+.topo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding-bottom: 10px; }
+.topo .sub { color: var(--ink-2); font-size: 13px; }
+.barra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 0 12px; }
+select { font: inherit; font-size: 13px; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; }
+label.chk { color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-size: 13px; }
+input[type=checkbox] { accent-color: var(--s1); margin: 0; }
+.aviso { font-size: 13px; padding: 8px 12px; margin-bottom: 12px; border-radius: 10px;
+         background: color-mix(in srgb, var(--warn) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
+.aviso[hidden] { display: none; }
+.grade { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) 380px; align-items: start; }
+@media (max-width: 1100px) { .grade { grid-template-columns: minmax(0, 1fr); } }
+.pilha { display: grid; gap: 12px; min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 12px 8px; min-width: 0; }
+.card > header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; margin: 0 4px 6px; }
+.card h2 { font-size: 14px; font-weight: 650; margin: 0; }
+.card .unid { color: var(--muted); font-size: 12px; }
+.vazio { display: grid; place-items: center; text-align: center; padding: 32px 16px; color: var(--ink-2); }
+table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
+.tab { overflow: auto; scrollbar-width: thin; }
+.neg { color: var(--neg); }
+.forte { font-weight: 700; }
+.barra-abs { display: inline-block; width: 44px; height: 6px; border-radius: 3px; background: var(--wash-2); margin-right: 6px; vertical-align: middle; overflow: hidden; }
+.barra-abs i { display: block; height: 100%; background: var(--s1); }
+ul.alertas { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+ul.alertas li { padding: 5px 4px; border-bottom: 1px solid var(--grid); display: flex; gap: 10px; }
+ul.alertas li:last-child { border-bottom: 0; }
+.sev { flex: none; width: 66px; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .03em; color: var(--ink-2); }
+.sev.alta { color: var(--neg); }
+.sev.aviso { color: var(--s4); }
+.prox { font-size: 13px; margin: 0 4px 6px; color: var(--ink-2); }
+.prox b { color: var(--ink); }
+details.metodo { margin-top: 16px; color: var(--ink-2); font-size: 13px; }
+details.metodo summary { cursor: pointer; color: var(--ink); font-weight: 600; padding: 6px 0; }
+details.metodo p { max-width: 90ch; margin: 6px 0; }
+</style>
+</head>
+<body>
+<main>
+  <nav class="paginas" aria-label="Páginas">
+    <a href="/">Painel</a><a href="/grafico?ativo=WIN">Gráfico WIN</a><a href="/grafico?ativo=WDO">Gráfico WDO</a>
+    <a href="/players">Players</a><a href="/leiloes" aria-current="page">Leilões</a>
+  </nav>
+  <header class="topo">
+    <h1>Leilões do Tesouro</h1>
+    <span class="sub" id="sub">carregando…</span>
+  </header>
+  <div class="barra">
+    <select id="dia" aria-label="Dia do leilão"></select>
+    <label class="chk"><input type="checkbox" id="info"> Mostrar alertas informativos</label>
+  </div>
+  <div class="aviso" id="aviso" role="status" hidden></div>
+
+  <div class="grade">
+    <div class="pilha">
+      <section class="card">
+        <header><h2>Alertas do dia</h2><span class="unid" id="u-alertas"></span></header>
+        <ul class="alertas" id="alertas"></ul>
+      </section>
+      <section class="card">
+        <header><h2>Resultado por título</h2><span class="unid">oferta e venda em títulos · financeiro em R$ milhões · DV01 em R$ mil por 1 bp</span></header>
+        <div class="tab" id="resumo"></div>
+      </section>
+      <section class="card">
+        <header><h2>Linhas do leilão</h2><span class="unid">taxas em % a.a. (LFT: ágio/deságio) · spread e concessão em bps · z contra o histórico anterior</span></header>
+        <div class="tab" id="linhas"></div>
+      </section>
+      <section class="card">
+        <header><h2>Absorção da 1ª volta</h2><span class="unid">venda ÷ oferta, média ponderada pela oferta de cada dia, últimos 12 meses</span></header>
+        <div id="g-abs"></div>
+      </section>
+    </div>
+    <aside class="pilha">
+      <section class="card">
+        <header><h2>Próximos leilões</h2><span class="unid">estimativa pelo padrão de 2026, não é calendário oficial</span></header>
+        <div class="tab" id="proximos"></div>
+      </section>
+      <section class="card">
+        <header><h2>Últimas semanas</h2><span class="unid">financeiro aceito em R$ bi · DV01 em R$ mil · recompra = Compra e Extra Compra (DV01 negativo)</span></header>
+        <div class="tab" id="semanas"></div>
+      </section>
+    </aside>
+  </div>
+
+  <details class="metodo">
+    <summary>O que esta página mostra e o que não mostra</summary>
+    <p><b>Fonte.</b> Planilhas de resultados do Tesouro Transparente (dataset ds013), lidas por coletor_leiloes.py. Em dia de leilão o coletor consulta a cada 15 min a partir das 12:00 até a data aparecer; o horário de publicação ainda está sendo medido (coluna <i>visto_em</i> no banco).</p>
+    <p><b>Absorção, não bid-to-cover.</b> O arquivo traz a oferta do Tesouro e a quantidade aceita, mas não o volume de propostas. Absorção = venda ÷ oferta; 1,00 é lote integral. Na 2ª volta, venda zero é comum (148 de 377 linhas em 2026) e não é fracasso.</p>
+    <p><b>Spread.</b> (taxa de corte − taxa média) × 10.000: quanto o corte ficou acima da média aceita; em venda é sempre ≥ 0.</p>
+    <p><b>Concessão.</b> Taxa de corte − taxa indicativa da ANBIMA da véspera (mesmo vencimento), em bps. A ANBIMA só tem histórico desde 14/09/2026, então a concessão e o <i>vs curva</i> (corte contra a ETTJ da ANBIMA no prazo do título) só existem para os leilões desde então. A LFT não tem concessão.</p>
+    <p><b>Bacen.</b> A quantidade "Venda para Bacen" é adicional à venda ao mercado, ao mesmo PU. A participação mostrada é Bacen ÷ (venda + Bacen).</p>
+    <p><b>DV01.</b> Duration modificada (base 252, feriados nacionais calculados, valor na liquidação, taxa média) × financeiro × 0,0001. Compra e Extra Compra têm sinal negativo (o Tesouro recompra). LFT e Troca ficam sem DV01. O PU recalculado bate com o financeiro ÷ venda das LTN e NTN-F de 2026 até a 4ª casa decimal.</p>
+    <p><b>Z-score.</b> Contra as observações anteriores do mesmo título, tipo, volta e vencimento (janela de 3 anos; mínimo de 8) e, se faltar amostra, da mesma faixa de prazo. Como a absorção quase sempre é 1,00, um leilão apenas parcial já gera z muito negativo: leia junto com a absorção.</p>
+    <p><b>Alertas.</b> Leilão fraco (absorção &lt; 0,5 na 1ª volta, z de absorção &lt; −2 ou z de concessão &gt; +2), venda zero, lote grande (z de tamanho &gt; 2 ou DV01 do dia acima do percentil 95), leilão forte, extra venda/compra e Bacen. São leituras dos dados, não recomendação.</p>
+  </details>
+</main>
+
+<script>
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const nf = d => new Intl.NumberFormat("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
+const f0 = nf(0), f1 = nf(1), f2 = nf(2), f4 = nf(4);
+const num = (v, f = f0) => v == null || Number.isNaN(v) ? "–" : f.format(v);
+const sinal = (v, f = f1) => v == null ? "–" : (v > 0 ? "+" : "") + f.format(v);
+const dataBr = s => s ? s.split("-").reverse().join("/") : "–";
+const venc = s => s ? s.slice(0, 7).split("-").reverse().join("/") : "–";
+const TIPO = { VENDA: "Venda", COMPRA: "Compra", TROCA: "Troca", EXTRA_VENDA: "Extra venda", EXTRA_COMPRA: "Extra compra" };
+const SEV = { alta: "alta", aviso: "aviso", baixa: "baixa", info: "info" };
+const COR = { LFT: "--s1", LTN: "--s2", "NTN-B": "--s3", "NTN-F": "--s5", "NTN-C": "--s4", "NTN-D": "--s4" };
+let dados = null, grafico = null;
+
+const z = v => v == null ? "–" : `<span class="${Math.abs(v) > 2 ? "forte" : ""} ${v < -2 ? "neg" : ""}">${sinal(v)}</span>`;
+const barra = v => v == null ? "–" : `<span class="barra-abs" aria-hidden="true"><i style="width:${Math.min(100, v * 100)}%"></i></span>${num(v * 100, f0)}%`;
+
+function tabela(el, cab, linhas) {
+  el.innerHTML = linhas.length
+    ? `<table><thead><tr>${cab.map(c => `<th>${c}</th>`).join("")}</tr></thead><tbody>${linhas.map(l => `<tr>${l.map(c => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`
+    : '<div class="vazio">sem dados</div>';
+}
+
+function desenhar() {
+  const d = dados;
+  const sel = document.getElementById("dia");
+  if (sel.options.length !== d.dias.length) sel.innerHTML = d.dias.map(x => `<option value="${x}">${dataBr(x)}</option>`).join("");
+  sel.value = d.dia || "";
+  document.getElementById("sub").textContent = d.dia
+    ? `${dataBr(d.dia)} · ${d.linhas.length} linhas · atualizado em ${d.ultima_atualizacao ? d.ultima_atualizacao.replace("T", " ") : "–"} (Brasília)` : "sem leilões no banco";
+  const av = document.getElementById("aviso");
+  av.hidden = !d.aviso;
+  av.textContent = d.aviso || "";
+
+  const mostrarInfo = document.getElementById("info").checked;
+  const al = d.alertas.filter(a => mostrarInfo || a.severidade === "alta" || a.severidade === "aviso");
+  document.getElementById("u-alertas").textContent = `${al.length} de ${d.alertas.length}${mostrarInfo ? "" : " (só alta e aviso)"}`;
+  document.getElementById("alertas").innerHTML = al.length
+    ? al.map(a => `<li><span class="sev ${SEV[a.severidade]}">${SEV[a.severidade]}</span><span>${esc(a.mensagem)}</span></li>`).join("")
+    : '<li><span style="color:var(--muted)">nenhum alerta relevante neste dia</span></li>';
+
+  tabela(document.getElementById("resumo"),
+    ["Título", "Tipo", "Ofertado", "Vendido", "Absorção", "Financeiro", "DV01", "Bacen"],
+    d.resumo.map(r => [esc(r.titulo), TIPO[r.tipo] || esc(r.tipo), num(r.oferta), num(r.venda), barra(r.absorcao),
+                       num(r.financeiro / 1e6, f1), r.dv01_brl == null ? "–" : num(r.dv01_brl / 1e3, f1), r.venda_bacen ? num(r.venda_bacen) : "–"]));
+
+  tabela(document.getElementById("linhas"),
+    ["Título", "Tipo", "Volta", "Vencimento", "Oferta", "Venda", "Absorção", "Taxa corte", "Spread", "Concessão", "vs curva", "Duration", "DV01", "z abs.", "z conc."],
+    d.linhas.map(l => [esc(l.titulo), TIPO[l.tipo] || esc(l.tipo), l.volta, venc(l.vencimento), num(l.oferta), num(l.venda), barra(l.absorcao),
+                       l.venda > 0 ? num(l.tx_corte * 100, f4) : "–", sinal(l.spread_bps, f1), sinal(l.concessao_bps), sinal(l.curva_bps),
+                       l.duracao_mod == null ? "–" : num(l.duracao_mod, f2), l.dv01_brl == null ? "–" : num(l.dv01_brl / 1e3, f1),
+                       z(l.z_absorcao_3a), z(l.z_concessao_3a)]));
+
+  tabela(document.getElementById("proximos"), ["Data", "Títulos"], d.proximos.map(p => [dataBr(p.data), esc(p.titulos)]));
+
+  const fam = ["Prefixado", "Juro real", "LFT", "Recompra"];
+  const semanas = [...new Set(d.semanas.map(s => s.semana))].sort().reverse();
+  tabela(document.getElementById("semanas"), ["Semana de", ...fam.map(f => f + " (R$ bi)"), "DV01 prefixado", "DV01 juro real", "DV01 recompra"],
+    semanas.map(w => {
+      const g = f => d.semanas.find(s => s.semana === w && s.familia === f);
+      return [dataBr(w), ...fam.map(f => g(f) ? num(g(f).financeiro / 1e9, f1) : "–"),
+              g("Prefixado") ? num(g("Prefixado").dv01 / 1e3, f0) : "–", g("Juro real") ? num(g("Juro real").dv01 / 1e3, f0) : "–",
+              g("Recompra") ? num(g("Recompra").dv01 / 1e3, f0) : "–"];
+    }));
+
+  serie();
+}
+
+function serie() {
+  const el = document.getElementById("g-abs");
+  if (grafico) { grafico.destroy(); grafico = null; }
+  const nomes = Object.keys(dados.serie);
+  const dias = [...new Set(nomes.flatMap(n => dados.serie[n].map(p => p[0])))].sort();
+  if (!dias.length) { el.innerHTML = '<div class="vazio">sem dados</div>'; return; }
+  el.innerHTML = "";
+  const x = dias.map(s => Date.parse(s + "T00:00:00Z") / 1e3);
+  const col = nomes.map(n => { const m = new Map(dados.serie[n]); return dias.map(s => m.has(s) ? m.get(s) : null); });
+  grafico = new uPlot({
+    width: el.clientWidth || 600, height: 240,
+    tzDate: ts => uPlot.tzDate(new Date(ts * 1e3), "Etc/UTC"),
+    cursor: { points: { size: 8 } },
+    scales: { y: { range: [0, 1.05] } },
+    series: [{ value: (u, v) => v == null ? "–" : new Date(v * 1e3).toISOString().slice(0, 10).split("-").reverse().join("/") },
+      ...nomes.map(n => ({ label: n, stroke: css(COR[n] || "--s4"), width: 2, spanGaps: true, points: { show: dias.length < 40, size: 6 },
+                           value: (u, v) => v == null ? "–" : (v * 100).toFixed(0) + "%" }))],
+    axes: [{ stroke: css("--muted"), grid: { stroke: css("--grid"), width: 1 }, ticks: { stroke: css("--grid"), width: 1 } },
+           { stroke: css("--muted"), grid: { stroke: css("--grid"), width: 1 }, ticks: { stroke: css("--grid"), width: 1 }, size: 48,
+             values: (u, sp) => sp.map(v => Math.round(v * 100) + "%") }],
+  }, [x, ...col], el);
+}
+
+async function carregar(dia) {
+  try {
+    const r = await fetch("/api/leiloes" + (dia ? "?dia=" + dia : ""), { cache: "no-store" });
+    dados = await r.json();
+    if (dados.erro) throw new Error(dados.erro);
+    desenhar();
+  } catch (e) {
+    document.getElementById("sub").textContent = "erro: " + e.message;
+  }
+}
+document.getElementById("dia").addEventListener("change", e => carregar(e.target.value));
+document.getElementById("info").addEventListener("change", () => dados && desenhar());
+window.addEventListener("resize", () => dados && serie());
+carregar();
+setInterval(() => carregar(document.getElementById("dia").value), 60000);
+</script>
+</body>
+</html>

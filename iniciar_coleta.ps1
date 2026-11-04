@@ -19,6 +19,9 @@ $coletas = [ordered]@{
     'TRYD'          = @('TRYD', '--db', 'dados/book.db', '--script', 'coletor_tryd.py')
     # leiloes de compromissadas do BC (Tomador 09:00, 1047 12:00-12:30) e Selic: busca a cada 20 min
     'BCB'           = @('BCB', '--db', 'dados/book.db', '--script', 'coletor_bcb.py')
+    # resultados dos leiloes do Tesouro (planilha do SISWEB): sobe as 08:00 (pega Extras do dia anterior), em terca/quinta
+    # espera ate 12:00 e busca a cada 15 min ate a data aparecer; nos demais dias uteis, 1x por hora (coletor_leiloes.py)
+    'LEILOES'       = @('LEILOES', '--db', 'dados/book.db', '--script', 'coletor_leiloes.py', '--inicio', '08:00', '--fim', '18:05')
     # desativado em 19/10/2026: so gravava o VIX e exigia o IB Gateway logado todo dia (coletor_ibkr.py segue no repo)
     # 'IBKR'        = @('IBKR', '--db', 'dados/book.db', '--script', 'coletor_ibkr.py')
     # agressao por minuto de 12 acoes + WDO (variaveis para estimar o fluxo estrangeiro; coletor_agressao.py)

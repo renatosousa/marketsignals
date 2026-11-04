@@ -3,6 +3,8 @@ pandas
 ib_async
 numpy
 requests
+openpyxl
+xlrd>=2.0.1  # leilao do Tesouro: historico-leiloes-todos.xls e o formato xls antigo
 feedparser
 transformers
 huggingface_hub

@@ -5,6 +5,12 @@
       "name": "dashboard",
       "url": "http://localhost:8050",
       "port": 8050
+    },
+    {
+      "name": "dashboard-teste",
+      "runtimeExecutable": ".venv/Scripts/python.exe",
+      "runtimeArgs": ["dashboard.py", "--porta", "8051", "--host", "127.0.0.1"],
+      "port": 8051
     }
   ]
 }

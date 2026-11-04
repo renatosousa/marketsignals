@@ -13,6 +13,8 @@ GET /api/wyckoff?ativo=WIN&tf=60min      -> fase/eventos Wyckoff objetivos (wyck
 GET /grafico                             -> pagina do grafico do WIN e do WDO com indicadores (grafico.html)
 GET /players                             -> evolucao dos players do WIN por corretora/grupo (players.html; coletor_tryd.py)
 GET /api/players[?dia=AAAA-MM-DD]        -> saldo, agressao e RLP por grupo de corretoras (players.py); sem dia = ultimo.
+GET /leiloes                             -> resultados dos leiloes do Tesouro com metricas e alertas (leiloes.html; coletor_leiloes.py)
+GET /api/leiloes[?dia=AAAA-MM-DD]        -> linhas, alertas, resumo e series dos leiloes (leiloes.py); sem dia = o ultimo leilao.
 GET /api/grafico?tf=1|5|15[&ativo=WIN|WDO][&dia=AAAA-MM-DD] -> velas e indicadores do grafico (grafico_quant.py);
                                            sem dia = ultimo pregao com dados do ativo.
 Todos os ts sao hora do servidor MT5 (Brasilia) codificada como epoch "UTC", como no banco.
@@ -33,6 +35,7 @@ import numpy as np
 import banco
 import curvas
 import grafico_quant as gq
+import leiloes
 import opcoes_manual as om
 import players
 import wyckoff
@@ -41,6 +44,7 @@ AQUI = Path(__file__).parent
 PONTOS = 600            # pontos por serie temporal (define o tamanho do balde)
 CACHE_S = 3.0
 CACHE_PLAYERS_S = 10.0  # o saldo do Tryd muda a cada 10 s
+CACHE_LEILOES_S = 30.0  # o resultado sai uma vez por dia; o calculo (pandas sobre 20 mil linhas) nao precisa rodar a cada pedido
 INICIO_PREGAO_H = 9
 
 # macro: graficos de variacao % (no maximo 4 series cada) e ativos da tabela de correlacao
@@ -379,6 +383,7 @@ class App:
         self.cache = {}
         self.lock = threading.Lock()
         self.lock_players = threading.Lock()  # a consulta da fita e longa: nao pode segurar os outros endpoints
+        self.lock_leiloes = threading.Lock()
         self.graf = gq.Grafico()
 
     def grafico(self, tf, dia, ativo="WIN"):
@@ -415,6 +420,21 @@ class App:
             con = sqlite3.connect(f"file:{self.db}?mode=ro", uri=True, timeout=10)
             try:
                 corpo = json.dumps(json_limpo(players.montar(con, dia)), ensure_ascii=False).encode()
+            finally:
+                con.close()
+            self.cache[chave] = (time.time(), corpo)
+            return corpo
+
+    def leiloes(self, dia):
+        """JSON do /api/leiloes (dia = 'AAAA-MM-DD' ou None para o ultimo leilao)."""
+        with self.lock_leiloes:
+            chave = ("l", dia)
+            hit = self.cache.get(chave)
+            if hit and time.time() - hit[0] < CACHE_LEILOES_S:
+                return hit[1]
+            con = sqlite3.connect(f"file:{self.db}?mode=ro", uri=True, timeout=10)
+            try:
+                corpo = json.dumps(json_limpo(leiloes.montar(con, dia)), ensure_ascii=False).encode()
             finally:
                 con.close()
             self.cache[chave] = (time.time(), corpo)
@@ -775,6 +795,20 @@ def main():
                     return self.enviar(400, b'{"erro":"dia (AAAA-MM-DD) invalido"}', "application/json")
                 try:
                     self.enviar(200, app.players(idx), "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
+            elif u.path == "/leiloes":
+                self.enviar(200, (AQUI / "leiloes.html").read_bytes(), "text/html; charset=utf-8")
+            elif u.path == "/api/leiloes":
+                dia = parse_qs(u.query).get("dia", [None])[0]
+                try:
+                    if dia is not None:
+                        date.fromisoformat(dia)
+                except ValueError:
+                    return self.enviar(400, b'{"erro":"dia (AAAA-MM-DD) invalido"}', "application/json")
+                try:
+                    self.enviar(200, app.leiloes(dia), "application/json; charset=utf-8")
                 except Exception as e:
                     self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
                                 "application/json")
