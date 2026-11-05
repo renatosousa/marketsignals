@@ -11,8 +11,9 @@ GET /api/tesouro-breakeven                -> inflacao implicita do Tesouro Diret
 GET /api/liquidez-bc                     -> leiloes de compromissadas do BC (coletor_bcb.py): Tomador e 1047.
 GET /api/wyckoff?ativo=WIN&tf=60min      -> fase/eventos Wyckoff objetivos (wyckoff.py) das ultimas barras fechadas.
 GET /grafico                             -> pagina do grafico do WIN e do WDO com indicadores (grafico.html)
-GET /players                             -> evolucao dos players do WIN por corretora/grupo (players.html; coletor_tryd.py)
-GET /api/players[?dia=AAAA-MM-DD]        -> saldo, agressao e RLP por grupo de corretoras (players.py); sem dia = ultimo.
+GET /players[?ativo=WDOZ26]              -> evolucao dos players por corretora/grupo (players.html; coletor_tryd.py)
+GET /api/players[?dia=AAAA-MM-DD][&ativo=PETR4] -> saldo, agressao e RLP por grupo de corretoras (players.py); sem dia =
+                                            ultimo; sem ativo = o WIN (a resposta lista os ativos do dia em `ativos`).
 GET /leiloes                             -> resultados dos leiloes do Tesouro com metricas e alertas (leiloes.html; coletor_leiloes.py)
 GET /api/leiloes[?dia=AAAA-MM-DD]        -> linhas, alertas, resumo e series dos leiloes (leiloes.py); sem dia = o ultimo leilao.
 GET /api/grafico?tf=1|5|15[&ativo=WIN|WDO][&dia=AAAA-MM-DD] -> velas e indicadores do grafico (grafico_quant.py);
@@ -22,6 +23,7 @@ Todos os ts sao hora do servidor MT5 (Brasilia) codificada como epoch "UTC", com
 import argparse
 import json
 import math
+import re
 import sqlite3
 import threading
 import time
@@ -410,16 +412,16 @@ class App:
             self.cache[chave] = (time.time(), corpo)
             return corpo
 
-    def players(self, dia):
+    def players(self, dia, ativo=None):
         """JSON do /api/players (cache curto: o saldo do Tryd muda a cada 10 s)."""
         with self.lock_players:
-            chave = ("p", dia)
+            chave = ("p", dia, ativo)
             hit = self.cache.get(chave)
             if hit and time.time() - hit[0] < CACHE_PLAYERS_S:
                 return hit[1]
             con = sqlite3.connect(f"file:{self.db}?mode=ro", uri=True, timeout=10)
             try:
-                corpo = json.dumps(json_limpo(players.montar(con, dia)), ensure_ascii=False).encode()
+                corpo = json.dumps(json_limpo(players.montar(con, dia, ativo)), ensure_ascii=False).encode()
             finally:
                 con.close()
             self.cache[chave] = (time.time(), corpo)
@@ -788,13 +790,16 @@ def main():
             elif u.path == "/players":
                 self.enviar(200, (AQUI / "players.html").read_bytes(), "text/html; charset=utf-8")
             elif u.path == "/api/players":
-                dia = parse_qs(u.query).get("dia", [None])[0]
+                qs = parse_qs(u.query)
+                dia, ativo = qs.get("dia", [None])[0], qs.get("ativo", [None])[0] or None
                 try:
                     idx = None if dia is None else date.fromisoformat(dia).toordinal() - date(1970, 1, 1).toordinal()
                 except ValueError:
                     return self.enviar(400, b'{"erro":"dia (AAAA-MM-DD) invalido"}', "application/json")
+                if ativo is not None and not re.fullmatch(r"[A-Z0-9]{4,8}", ativo):
+                    return self.enviar(400, b'{"erro":"ativo invalido (ex.: WINZ26, PETR4)"}', "application/json")
                 try:
-                    self.enviar(200, app.players(idx), "application/json; charset=utf-8")
+                    self.enviar(200, app.players(idx, ativo), "application/json; charset=utf-8")
                 except Exception as e:
                     self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
                                 "application/json")

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Players do WIN</title>
+<title>Players</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css">
 <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
 <style>
@@ -44,8 +44,9 @@ a { color: var(--s1); text-underline-offset: 3px; }
 .topo { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding-bottom: 10px; }
 .topo .sub { color: var(--ink-2); font-size: 13px; }
 .barra { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px 0 12px; }
-input[type=date] { font: inherit; font-size: 13px; color: var(--ink); background: var(--surface); border: 1px solid var(--border);
+input[type=date], select { font: inherit; font-size: 13px; color: var(--ink); background: var(--surface); border: 1px solid var(--border);
                    border-radius: 8px; padding: 4px 8px; }
+[hidden] { display: none !important; }
 label.chk { color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-size: 13px; }
 input[type=checkbox] { accent-color: var(--s1); margin: 0; }
 .aviso { font-size: 13px; padding: 8px 12px; margin-bottom: 12px; border-radius: 10px;
@@ -90,10 +91,11 @@ details.metodo p { max-width: 90ch; margin: 6px 0; }
     <a href="/players" aria-current="page">Players</a><a href="/leiloes">Leilões</a>
   </nav>
   <header class="topo">
-    <h1>Players do WIN</h1>
+    <h1 id="titulo">Players</h1>
     <span class="sub" id="sub">carregando…</span>
   </header>
   <div class="barra">
+    <select id="ativo" aria-label="Ativo"></select>
     <input type="date" id="dia" aria-label="Pregão">
     <label class="chk"><input type="checkbox" id="auto" checked> Atualizar a cada 10 s</label>
   </div>
@@ -103,23 +105,27 @@ details.metodo p { max-width: 90ch; margin: 6px 0; }
   <div class="grade">
     <div class="pilha">
       <section class="card">
-        <header><h2>Posição líquida por grupo</h2><span class="unid">contratos acumulados no dia · comprou − vendeu (soma dos grupos = 0)</span></header>
+        <header><h2>Posição líquida por grupo</h2><span class="unid"><span class="un">contratos</span> acumulados no dia · comprou − vendeu (soma dos grupos = 0)</span></header>
         <div class="leitura" id="l-saldo"></div>
         <div id="g-saldo"></div>
       </section>
       <section class="card">
-        <header><h2>Saldo de agressão por grupo</h2><span class="unid">contratos acumulados · comprou a mercado − vendeu a mercado</span></header>
+        <header><h2>Saldo de agressão por grupo</h2><span class="unid"><span class="un">contratos</span> acumulados · comprou a mercado − vendeu a mercado</span></header>
         <div class="leitura" id="l-agr"></div>
         <div id="g-agr"></div>
       </section>
-      <section class="card">
-        <header><h2>RLP acumulado por grupo</h2><span class="unid">contratos da fita com agressor RLP (amostra de ~45–75% dos negócios)</span></header>
+      <section class="card fita">
+        <header><h2>RLP acumulado por grupo</h2><span class="unid"><span class="un">contratos</span> da fita com agressor RLP (amostra de ~45–75% dos negócios)</span></header>
         <div class="leitura" id="l-rlp"></div>
         <div id="g-rlp"></div>
       </section>
-      <section class="card">
+      <section class="card fita">
         <header><h2>RLP na fita</h2><span class="unid">% do volume capturado, por faixa de 5 min</span></header>
         <div id="g-pct"></div>
+      </section>
+      <section class="card" id="sem-fita" hidden>
+        <header><h2>Fita de negócios</h2></header>
+        <p class="unid" style="margin:0 4px 8px">O coletor só lê o saldo por corretora das ações (uma foto por minuto); a fita, o RLP e a agressão estimada pela fita existem só para WIN e WDO.</p>
       </section>
     </div>
     <aside class="pilha">
@@ -132,11 +138,11 @@ details.metodo p { max-width: 90ch; margin: 6px 0; }
 
   <details class="metodo">
     <summary>O que este gráfico mostra e o que não mostra</summary>
-    <p><b>Fonte.</b> Saldo por corretora e fita de negócios do Tryd (DDE), gravados por coletor_tryd.py: uma foto do saldo a cada 10 s e cada negócio da fita com corretora compradora, vendedora e agressor.</p>
+    <p><b>Fonte.</b> Saldo por corretora e fita de negócios do Tryd (DDE), gravados por coletor_tryd.py: no WIN e no WDO, uma foto do saldo a cada 10 s e cada negócio da fita com corretora compradora, vendedora e agressor; nas ações (PETR4, VALE3, ITUB4, BBDC4, BOVA11), só o saldo, uma foto por minuto, em ações (cotas no BOVA11).</p>
     <p><b>Corretora não é tipo de investidor.</b> O agrupamento é uma hipótese: Estrangeiro = bancos globais; Institucional = bancos e gestoras locais; Varejo = plataformas de pessoa física; XP, BTG e Genial aparecem cada uma sozinha (linhas tracejadas) e Misto = Santander: atendem pessoa física e institucional juntos. Um fundo estrangeiro que opera pela XP aparece na XP. O mapa só pode ser testado contra o fluxo por tipo de investidor que a B3 publica (só ações, com 2 pregões de atraso); isso exige semanas de coleta de PETR4, VALE3, ITUB4, BBDC4 e BOVA11.</p>
     <p><b>RLP.</b> Na fita, todo negócio RLP tem a mesma corretora nas duas pontas: é o fluxo do varejo da corretora cruzado com o provedor de liquidez. Por isso não há saldo líquido de RLP por grupo; mede-se o volume e a parte do volume de cada corretora que foi RLP (quanto maior, mais varejo).</p>
     <p><b>Market maker e HFT.</b> A B3 não publica; não há como validar. A coluna <i>Giro</i> (volume negociado ÷ |saldo|) só indica quem opera dos dois lados e termina o dia perto de zero.</p>
-    <p><b>Limites da fita.</b> A janela do Tryd guarda 31 negócios e se redesenha ~4 vezes por segundo; nos picos parte da fita se perde. O saldo por corretora vem do total acumulado do dia, sem perda.</p>
+    <p><b>Limites da fita.</b> A janela do Tryd guarda 100 negócios (31 até 3/11/2026) e se redesenha ~4 vezes por segundo; nos picos parte da fita se perde. O saldo por corretora vem do total acumulado do dia, sem perda.</p>
     <p><b>Células vazias.</b> No meio do redesenho o Tryd às vezes devolve a linha de uma corretora vazia (em 3/11/2026, 4% das linhas do WIN; nunca no WDO). Como o saldo é acumulado no dia, vale o último valor lido dela; antes disso o grupo "zerava" a corretora por 10 s e voltava.</p>
     <p>Nada aqui foi testado como sinal de entrada.</p>
   </details>
@@ -206,6 +212,11 @@ function leituraFinal(id, series, fmt = nf0.format) {
 
 function desenhar() {
   const d = dados;
+  const temFita = d.negocios_fita > 0;
+  document.querySelectorAll(".card.fita").forEach(c => c.hidden = !temFita);
+  document.getElementById("sem-fita").hidden = temFita || !!(d.ativo || "").match(/^(WIN|WDO)/);
+  if (!temFita) ["g-rlp", "g-pct"].forEach(id => { if (graficos[id]) { graficos[id].destroy(); delete graficos[id]; } });
+  document.querySelectorAll(".un").forEach(s => s.textContent = d.unidade || "contratos");
   const grupos = ORDEM.filter(g => d.series[g] || (d.rlp.acumulado || {})[g]);
   document.getElementById("legenda").innerHTML = grupos.map(g =>
     `<button data-g="${g}" aria-pressed="${!escondidos.has(g)}" title="${d.grupos[g]}"><i style="background:${icone(g)}"></i>${g}</button>`).join("");
@@ -225,8 +236,10 @@ function desenhar() {
   } else {
     if (graficos["g-agr"]) { graficos["g-agr"].destroy(); delete graficos["g-agr"]; }
     document.getElementById("l-agr").innerHTML = "";
-    document.getElementById("g-agr").innerHTML = '<div class="vazio">Sem dados: a janela de Saldo por corretora do Tryd não está preenchendo as colunas Agr. Cpa., Agr. Vda. e Sld. Agr.</div>';
+    document.getElementById("g-agr").innerHTML = `<div class="vazio">Sem dados: a janela de Saldo por corretora do ${d.ativo} no Tryd não está preenchendo as colunas Agr. Cpa., Agr. Vda. e Sld. Agr.</div>`;
   }
+  tabela(d);
+  if (!temFita) return;
   const r = d.rlp;
   const rlp = ORDEM.filter(g => (r.acumulado || {})[g]).map(g => ({ nome: g, v: r.acumulado[g] }));
   grafico("g-rlp", r.t, rlp, { leitura: "l-rlp" }); leituraFinal("l-rlp", rlp);
@@ -234,32 +247,47 @@ function desenhar() {
   // a unica serie do grafico de % nao e de um grupo: usa a cor do texto
   COR["% RLP"] = "--ink-2"; pct[0].nome = "% RLP"; escondidos.delete("% RLP");
   grafico("g-pct", r.t, pct, { altura: 160, fmt: v => nf1.format(v) + "%", fmtEixo: v => nf0.format(v) + "%" });
-  tabela(d);
 }
 
 function tabela(d) {
   const cl = v => v == null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "";
-  document.getElementById("u-tab").textContent = `foto das ${hora(d.foto_fim)} · contratos` + (d.agr_fita ? " · * agressão estimada pela fita" : "");
+  const est = d.agr_fita && d.agr_fita.t.length;
+  document.getElementById("u-tab").textContent = `foto das ${hora(d.foto_fim)} · ${d.unidade || "contratos"}` + (est ? " · * agressão estimada pela fita" : "");
   document.getElementById("tab").innerHTML = `<table><thead><tr><th>Corretora</th><th>Grupo</th><th>Saldo</th><th>Agressão${d.agr_fita ? "*" : ""}</th><th>Volume</th><th>Giro</th><th>% RLP</th></tr></thead><tbody>` +
     d.corretoras.map(c => `<tr><td>${c.corretora}</td><td><i style="background:${icone(c.grupo)}"></i>${c.grupo}</td>
-      <td class="${cl(c.saldo)}">${nf0.format(c.saldo)}</td><td class="${cl(c.agr)}">${nf0.format(c.agr)}${d.agr_fita ? "*" : ""}</td>
+      <td class="${cl(c.saldo)}">${nf0.format(c.saldo)}</td><td class="${cl(c.agr)}">${c.agr == null ? "–" : nf0.format(c.agr) + (d.agr_fita ? "*" : "")}</td>
       <td>${nf0.format(c.volume)}</td><td>${c.giro == null ? "–" : nf0.format(c.giro)}</td>
       <td>${c.rlp == null ? "–" : nf0.format(c.rlp * 100) + "%"}</td></tr>`).join("") + "</tbody></table>";
 }
 
 const iso = dia => new Date(dia * 86400e3).toISOString().slice(0, 10);
 
+const selAtivo = document.getElementById("ativo");
+let ativo = new URLSearchParams(location.search).get("ativo") || "";
+
+function opcoesAtivo(lista) {
+  const atual = [...selAtivo.options].map(o => o.value).join();
+  if (lista.join() !== atual) selAtivo.innerHTML = lista.map(a => `<option value="${a}">${a}</option>`).join("");
+  if (ativo) selAtivo.value = ativo;
+}
+
 async function carregar() {
   const dia = document.getElementById("dia").value;
   const aviso = document.getElementById("aviso");
   try {
-    const r = await fetch("/api/players" + (dia ? "?dia=" + dia : ""));
+    const qs = new URLSearchParams();
+    if (dia) qs.set("dia", dia);
+    if (ativo) qs.set("ativo", ativo);
+    const r = await fetch("/api/players" + (qs.toString() ? "?" + qs : ""));
     const d = await r.json();
     if (d.erro) throw new Error(d.erro);
+    opcoesAtivo(d.ativos && d.ativos.length ? d.ativos : ativo ? [ativo] : []);
+    document.getElementById("titulo").textContent = d.ativo ? `Players do ${d.ativo}` : "Players";
+    document.title = d.ativo ? `Players ${d.ativo}` : "Players";
     if (d.vazio) {
       document.getElementById("sub").textContent = "sem dados do Tryd nesse dia";
       aviso.hidden = false;
-      aviso.textContent = "Sem fotos de saldo do WINZ26 para esse dia. O coletor_tryd.py grava das 08:55 às 18:30 (grupo TRYD) com o Tryd aberto e a janela de saldo exportando por DDE.";
+      aviso.textContent = `Sem fotos de saldo ${d.ativo ? "do " + d.ativo + " " : ""}para esse dia. O coletor_tryd.py grava das 08:55 às 18:30 (grupo TRYD) com o Tryd aberto e a janela de Saldo por corretora do ativo exportando por DDE.`;
       return;
     }
     dados = d;
@@ -267,7 +295,8 @@ async function carregar() {
     if (!dia) el.value = iso(d.dia);
     el.min = iso(d.dias[0]); el.max = iso(d.dias[d.dias.length - 1]);
     document.getElementById("sub").textContent =
-      `${d.ativo} · ${iso(d.dia)} · ${d.fotos} fotos do saldo (${hora(d.foto_inicio)}–${hora(d.foto_fim)}) · ${nf0.format(d.negocios_fita)} negócios na fita`;
+      `${iso(d.dia)} · ${d.fotos} fotos do saldo (${hora(d.foto_inicio)}–${hora(d.foto_fim)})` +
+      (d.negocios_fita ? ` · ${nf0.format(d.negocios_fita)} negócios na fita` : "");
     // o saldo e acumulado do dia: se a coleta comecou depois da abertura, falta o que veio antes? Nao: o saldo
     // ja traz o acumulado desde a abertura. A serie so nao tem pontos antes da primeira foto.
     const abertura = 9 * 3600 + 5 * 60, inicio = d.foto_inicio % 86400;
@@ -281,6 +310,11 @@ async function carregar() {
 }
 
 document.getElementById("dia").onchange = carregar;
+selAtivo.onchange = () => {
+  ativo = selAtivo.value;
+  const u = new URL(location.href); u.searchParams.set("ativo", ativo); history.replaceState(null, "", u);
+  escondidos.clear(); carregar();
+};
 setInterval(() => {  // so atualiza sozinho no ultimo dia coletado
   const dia = document.getElementById("dia").value;
   if (document.getElementById("auto").checked && dados && dia === iso(dados.dias[dados.dias.length - 1])) carregar();

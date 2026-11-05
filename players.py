@@ -1,4 +1,5 @@
-"""Evolucao dos players do WIN no dia, das corretoras do Tryd (coletor_tryd.py: tryd_saldo e tryd_fita) -> pagina /players.
+"""Evolucao dos players no dia (WIN, WDO e as acoes com janela no Tryd), das corretoras do Tryd (coletor_tryd.py: tryd_saldo
+e tryd_fita) -> pagina /players?ativo=.
 
 Corretora NAO e tipo de investidor. O mapa abaixo e um PRIOR (hipotese de quem costuma operar por cada casa), nao um
 dado: XP, BTG, Genial e Ideal misturam pessoa fisica e institucional (XP, BTG e Genial, as maiores, tem grupo proprio para
@@ -7,8 +8,9 @@ publica o fluxo por tipo de investidor apenas das acoes, com 2 pregoes de atraso
 o mapa deve ser ajustado e validado quando houver semanas de coleta. Market maker/HFT nao e publicado pela B3: aqui so
 aparece o giro de cada corretora (volume negociado / |saldo|), que e um sinal de quem opera dos dois lados, nao uma prova.
 
-Series (todas do WINZ26, ts em segundos, hora de Brasilia como epoch "UTC", como no banco):
-  saldo   posicao liquida acumulada no dia por grupo (contratos): soma de qtd = qtdc - qtdv das corretoras do grupo.
+Series (de um ativo, ts em segundos, hora de Brasilia como epoch "UTC", como no banco). Futuros em contratos; acoes em
+acoes (BOVA11 em cotas), com foto a cada 60 s e sem fita (o coletor so le o saldo delas: sem RLP nem agressao estimada):
+  saldo   posicao liquida acumulada no dia por grupo: soma de qtd = qtdc - qtdv das corretoras do grupo.
           A soma de todos os grupos e zero (cada negocio tem comprador e vendedor).
   agr     saldo de agressao acumulado por grupo (sagr = agrc - agrv): quem comprou/vendeu a mercado.
   rlp     fita: negocios com agressor "RLP". Na fita de 30/10/2026 TODOS os 6.000 negocios RLP tem a mesma corretora
@@ -18,9 +20,13 @@ Series (todas do WINZ26, ts em segundos, hora de Brasilia como epoch "UTC", como
           (sinal de varejo). A fita capta 45-75% dos negocios (a janela do Tryd guarda 31 linhas), entao e uma amostra;
           o saldo acima e a fonte exata dos totais.
 """
+import re
+
 import numpy as np
 
 DIA_MS = 86_400_000
+ORDEM_ATIVOS = ("WIN", "WDO", "PETR4", "VALE3", "ITUB4", "BBDC4", "BOVA11")  # ordem do seletor (prefixo: o vencimento muda)
+_FUTURO = re.compile(r"^(WIN|WDO|IND|DOL)[FGHJKMNQUVXZ]\d\d$")
 PONTOS = 600
 GRUPOS = ["Estrangeiro", "Institucional", "Varejo", "XP", "BTG", "Genial", "Misto", "Liquidez", "Outros"]
 DESCRICAO = {
@@ -44,11 +50,27 @@ MAPA = {
     "CM Capital": "Varejo", "PAGINVEST": "Varejo", "LEV": "Varejo",
     "XP": "XP", "BTG": "BTG", "Genial": "Genial", "Santander": "Misto",
     "Tullett": "Liquidez", "BGC Liquidez": "Liquidez",
+    # so aparecem nas acoes (4/11/2026: menos de 0,1% do volume de PETR4 e VALE3)
+    "NuInvest": "Varejo", "SCOTIABANK": "Estrangeiro",
 }
 
 
 def grupo(corretora):
     return MAPA.get(corretora, "Outros")
+
+
+def unidade(ativo):
+    return "contratos" if _FUTURO.match(ativo) else "cotas" if ativo.endswith("11") else "ações"
+
+
+def _ordem_ativo(ativo):
+    return next((i for i, p in enumerate(ORDEM_ATIVOS) if ativo.startswith(p)), len(ORDEM_ATIVOS)), ativo
+
+
+def ativos_do_dia(con, dia):
+    """Ativos com foto de saldo no dia (intervalo da chave primaria, que comeca por ts_ms), na ordem do seletor."""
+    return sorted((r[0] for r in con.execute("SELECT DISTINCT ativo FROM tryd_saldo WHERE ts_ms>=? AND ts_ms<?",
+                                             (dia * DIA_MS, (dia + 1) * DIA_MS))), key=_ordem_ativo)
 
 
 def _reduzir(ts, pontos=PONTOS):
@@ -162,12 +184,14 @@ def cobertura_fita(n, nmin, nmax):
     return n / ((nmax - nmin) // 10 + 1) if n and n > 1 else None
 
 
-def tabela(ultima, rlp_por_brk, agr_est=None):
-    """Linhas da tabela por corretora na ultima foto, ordenadas por volume negociado."""
+def tabela(ultima, rlp_por_brk, agr_est=None, sem_agr=False):
+    """Linhas da tabela por corretora na ultima foto, ordenadas por volume negociado. sem_agr: nem a janela nem a fita
+    trazem agressao (acoes sem as colunas Agr.), entao a coluna fica vazia em vez de zero."""
     out = []
     for brk, (q, s, c, v) in ultima.items():
         vol = c + v
-        out.append({"corretora": brk, "grupo": grupo(brk), "saldo": q, "agr": s if agr_est is None else agr_est.get(brk, 0),
+        agr = None if sem_agr else s if agr_est is None else agr_est.get(brk, 0)
+        out.append({"corretora": brk, "grupo": grupo(brk), "saldo": q, "agr": agr,
                     "volume": vol,
                     "giro": vol / abs(q) if q else None,
                     "rlp": rlp_por_brk.get(brk)})
@@ -201,30 +225,37 @@ def fita_rlp(agg, bins_min=5):
             "acumulado": {g: np.cumsum(v).tolist() for g, v in por_grupo.items() if np.any(v)}}, pct
 
 
-def montar(con, dia, ativo="WINZ26"):
-    """Resposta do /api/players. `dia` = indice do dia (ts_ms // 86400000) ou None para o ultimo com saldo."""
+def montar(con, dia, ativo=None):
+    """Resposta do /api/players. `dia` = indice do dia (ts_ms // 86400000) ou None para o ultimo com saldo do ativo;
+    `ativo` = codigo do Tryd (WINZ26, PETR4...) ou None para o primeiro do seletor (o WIN) no ultimo dia coletado."""
     if dia is None:
-        dia = con.execute("SELECT max(ts_ms) FROM tryd_saldo WHERE ativo=?", (ativo,)).fetchone()[0]
+        q = "SELECT max(ts_ms) FROM tryd_saldo" + (" WHERE ativo=?" if ativo else "")
+        dia = con.execute(q, (ativo,) if ativo else ()).fetchone()[0]
         if dia is None:
-            return {"vazio": True, "ativo": ativo}
+            return {"vazio": True, "ativo": ativo, "ativos": []}
         dia //= DIA_MS
+    ativos = ativos_do_dia(con, dia)
+    if ativo is None:
+        if not ativos:
+            return {"vazio": True, "ativo": None, "dia": dia, "ativos": []}
+        ativo = ativos[0]
     lo, hi = dia * DIA_MS, (dia + 1) * DIA_MS
     linhas = con.execute("SELECT ts_ms, brk, qtd, sagr, qtdc, qtdv FROM tryd_saldo WHERE ativo=? AND ts_ms>=? AND ts_ms<? "
                          "ORDER BY ts_ms", (ativo, lo, hi)).fetchall()
     if not linhas:
-        return {"vazio": True, "ativo": ativo, "dia": dia}
+        return {"vazio": True, "ativo": ativo, "dia": dia, "ativos": ativos, "unidade": unidade(ativo)}
     ts_ms, series, ultima, tem_agr = saldo_por_grupo(linhas)
     agg, n_fita, nmin, nmax = fita_agregada(con, ativo, dia)
     rlp, pct = fita_rlp(agg)
-    agr_fita, agr_brk = agressao_da_fita(agg) if not tem_agr else (None, None)
+    agr_fita, agr_brk = agressao_da_fita(agg) if not tem_agr and agg else (None, None)
     dias = [r[0] for r in con.execute("SELECT DISTINCT ts_ms / ? FROM tryd_saldo WHERE ativo=? ORDER BY 1", (DIA_MS, ativo))]
     return {
-        "ativo": ativo, "dia": dia, "dias": dias,
+        "ativo": ativo, "dia": dia, "dias": dias, "ativos": ativos, "unidade": unidade(ativo),
         "t": [x // 1000 for x in ts_ms], "series": series, "agr_disponivel": tem_agr,
         "foto_inicio": linhas[0][0] // 1000, "foto_fim": ts_ms[-1] // 1000, "fotos": len({r[0] for r in linhas}),
         "rlp": {**rlp, "t": rlp["t"]},
         "agr_fita": agr_fita, "agr_cobertura_fita": cobertura_fita(n_fita, nmin, nmax) if agr_fita else None,
-        "corretoras": tabela(ultima, pct, agr_brk if agr_fita else None),
+        "corretoras": tabela(ultima, pct, agr_brk if agr_fita else None, sem_agr=not tem_agr and not agg),
         "grupos": {g: DESCRICAO[g] for g in GRUPOS},
         "negocios_fita": n_fita,
     }

@@ -12,11 +12,11 @@ DIA = 20756
 T0 = DIA * 86_400_000 + 12 * 3_600_000
 
 
-def banco(saldo, fita=()):
+def banco(saldo, fita=(), ativo="WINZ26"):
     db = sqlite3.connect(":memory:")
     db.executescript(ct.SCHEMA)
     db.executemany("INSERT INTO tryd_saldo (ts_ms, ativo, linha, brk, qtd, sagr, qtdc, qtdv) VALUES (?,?,?,?,?,?,?,?)",
-                   [(ts, "WINZ26", i, b, q, s, c, v) for i, (ts, b, q, s, c, v) in enumerate(saldo)])
+                   [(ts, ativo, i, b, q, s, c, v) for i, (ts, b, q, s, c, v) in enumerate(saldo)])
     db.executemany("INSERT INTO tryd_fita VALUES (?,?,?,?,?,?,?,?,?,?,?)", fita)
     return db
 
@@ -93,6 +93,38 @@ class TestSaldo(unittest.TestCase):
 
 
 DIA_MS = players.DIA_MS
+
+
+class TestAtivos(unittest.TestCase):
+    def setUp(self):
+        players._CACHE_FITA.clear()
+        self.db = banco([(T0, "XP", 1, None, 1, 0), (T0, "UBS", -1, None, 0, 1)], ativo="PETR4")
+        self.db.executemany("INSERT INTO tryd_saldo (ts_ms, ativo, linha, brk, qtd, sagr, qtdc, qtdv) VALUES (?,?,?,?,?,?,?,?)",
+                            [(T0, "WDOZ26", 0, "XP", 2, 2, 2, 0), (T0, "WINZ26", 0, "XP", 3, 3, 3, 0),
+                             (T0, "WINZ26", 1, "Goldman", -3, -3, 0, 3), (T0 - DIA_MS, "VALE3", 0, "XP", 1, 1, 1, 0)])
+
+    def test_sem_ativo_e_o_win_e_lista_os_ativos_do_dia_na_ordem(self):
+        r = players.montar(self.db, None)
+        self.assertEqual(r["ativo"], "WINZ26")
+        self.assertEqual(r["ativos"], ["WINZ26", "WDOZ26", "PETR4"])  # VALE3 so no dia anterior
+        self.assertEqual(r["unidade"], "contratos")
+
+    def test_acao_sem_fita_nem_agressao(self):
+        r = players.montar(self.db, None, "PETR4")
+        self.assertEqual((r["ativo"], r["dia"], r["unidade"]), ("PETR4", DIA, "ações"))
+        self.assertEqual(r["series"]["XP"]["saldo"], [1])
+        self.assertIsNone(r["agr_fita"])  # sem fita nao ha estimativa (antes vinha uma serie vazia)
+        self.assertEqual({c["agr"] for c in r["corretoras"]}, {None})  # coluna vazia, nao zero
+        self.assertEqual(r["negocios_fita"], 0)
+
+    def test_dia_sem_o_ativo_pedido(self):
+        r = players.montar(self.db, DIA - 1, "PETR4")
+        self.assertTrue(r["vazio"])
+        self.assertEqual(r["ativos"], ["VALE3"])
+
+    def test_unidade(self):
+        self.assertEqual([players.unidade(a) for a in ("WINZ26", "WDOF27", "VALE3", "BOVA11")],
+                         ["contratos", "contratos", "ações", "cotas"])
 
 
 class TestRlp(unittest.TestCase):
