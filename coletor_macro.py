@@ -18,6 +18,7 @@ import time
 from datetime import datetime
 
 import MetaTrader5 as mt5
+import terminal_mt5
 
 import banco
 from relogio import Relogio
@@ -60,7 +61,7 @@ def main():
 
     db = banco.abrir(args.db, SCHEMA)
 
-    if not mt5.initialize():
+    if not terminal_mt5.iniciar(mt5):
         raise SystemExit(f"initialize falhou: {mt5.last_error()}")
     grupo_de = {s: g for g, lista in ATIVOS.items() for s in lista}
     for s in list(grupo_de):

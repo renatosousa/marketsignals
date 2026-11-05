@@ -23,6 +23,7 @@ import time
 from datetime import datetime, timezone
 
 import MetaTrader5 as mt5
+import terminal_mt5
 
 import banco
 from relogio import local_br_ms
@@ -93,7 +94,7 @@ def main():
     args = ap.parse_args()
 
     db = banco.abrir(args.db, SCHEMA)
-    if not mt5.initialize():
+    if not terminal_mt5.iniciar(mt5):
         raise SystemExit(f"initialize falhou: {mt5.last_error()}")
     for s in CESTA + [FUTURO]:
         mt5.symbol_select(s, True)

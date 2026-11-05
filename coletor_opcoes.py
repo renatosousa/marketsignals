@@ -33,6 +33,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 
 import MetaTrader5 as mt5
+import terminal_mt5
 import numpy as np
 
 import banco
@@ -214,7 +215,7 @@ def main():
 
     db = banco.abrir(args.db, SCHEMA)
 
-    if not mt5.initialize():
+    if not terminal_mt5.iniciar(mt5):
         raise SystemExit(f"initialize falhou: {mt5.last_error()}")
     mt5.symbol_select(sub, True)
 

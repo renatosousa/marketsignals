@@ -53,7 +53,8 @@ def conferir_rolagem(db, ativos=("WIN$", "WDO$"), tolerancia=0.002):
     periodo que o MT5 ainda devolve e baixado de novo. As barras antes da correcao ficam em
     barras_1m_antes_rolagem. -> lista dos simbolos corrigidos."""
     import MetaTrader5 as mt5
-    if not mt5.initialize():
+    import terminal_mt5
+    if not terminal_mt5.iniciar(mt5):
         return []
     refeitos = []
     hoje_br = int((datetime.utcnow() + BR).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -86,15 +87,16 @@ def conferir_rolagem(db, ativos=("WIN$", "WDO$"), tolerancia=0.002):
         backfill_mt5(db, datetime.fromtimestamp(ini / 1000, timezone.utc).replace(tzinfo=None) - BR,
                      datetime.utcnow().replace(second=0, microsecond=0), [s])
         refeitos.append(s)
-        mt5.initialize()
+        terminal_mt5.iniciar(mt5)
     mt5.shutdown()
     return refeitos
 
 
 def backfill_mt5(db, inicio, fim, ativos=None):
     import MetaTrader5 as mt5
+    import terminal_mt5
     from coletor_agressao import CESTA  # acoes da cesta de agressao: o volume real por minuto escala a captura
-    if not mt5.initialize():
+    if not terminal_mt5.iniciar(mt5):
         raise SystemExit(f"MT5: {mt5.last_error()}")
     for s in (ativos or MT5_ATIVOS + CESTA):
         mt5.symbol_select(s, True)

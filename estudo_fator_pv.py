@@ -66,7 +66,8 @@ def relatorio(df, horizontes, periodo, unidade, escala):
 
 def diario():
     import MetaTrader5 as mt5
-    mt5.initialize()
+    import terminal_mt5
+    terminal_mt5.iniciar(mt5)
     mt5.symbol_select("WIN$", True)
     r = mt5.copy_rates_from_pos("WIN$", mt5.TIMEFRAME_D1, 1, 6000)  # pos 1: exclui o dia em andamento
     mt5.shutdown()

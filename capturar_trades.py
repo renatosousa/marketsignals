@@ -8,12 +8,13 @@ import time
 from datetime import datetime, timezone
 
 import MetaTrader5 as mt5
+import terminal_mt5
 
 symbol = sys.argv[1] if len(sys.argv) > 1 else "WIN$"
 duracao = float(sys.argv[2]) if len(sys.argv) > 2 else 30.0
 saida = f"trades_{symbol.replace('$', '')}_{datetime.now():%Y%m%d_%H%M%S}.csv"
 
-if not mt5.initialize():
+if not terminal_mt5.iniciar(mt5):
     sys.exit(f"initialize falhou: {mt5.last_error()}")
 mt5.symbol_select(symbol, True)
 

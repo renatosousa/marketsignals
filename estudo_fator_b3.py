@@ -38,7 +38,8 @@ TIMEOUT_POR_ATIVO = 20.0
 
 def baixar():
     import MetaTrader5 as mt5
-    if not mt5.initialize():
+    import terminal_mt5
+    if not terminal_mt5.iniciar(mt5):
         raise SystemExit(f"MT5: {mt5.last_error()}")
     partes = []
     for s in ACOES:

@@ -9,12 +9,13 @@ import time
 from datetime import datetime
 
 import MetaTrader5 as mt5
+import terminal_mt5
 
 symbol = sys.argv[1] if len(sys.argv) > 1 else "WINV26"
 duracao = float(sys.argv[2]) if len(sys.argv) > 2 else 10.0
 saida = f"livro_{symbol}_{datetime.now():%Y%m%d_%H%M%S}.csv"
 
-if not mt5.initialize():
+if not terminal_mt5.iniciar(mt5):
     sys.exit(f"initialize falhou: {mt5.last_error()}")
 
 info = mt5.terminal_info()

@@ -22,6 +22,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import MetaTrader5 as mt5
+import terminal_mt5
 import numpy as np
 import pandas as pd
 
@@ -95,7 +96,7 @@ def main():
     ap.add_argument("--ativos", nargs="+", default=["WIN$", FUTURO] + CESTA)
     ap.add_argument("--gravar", action="store_true")
     args = ap.parse_args()
-    if not mt5.initialize():
+    if not terminal_mt5.iniciar(mt5):
         raise SystemExit(f"MT5: {mt5.last_error()}")
     for s in args.ativos:
         mt5.symbol_select(s, True)

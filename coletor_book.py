@@ -25,6 +25,7 @@ import time
 from datetime import datetime, timezone
 
 import MetaTrader5 as mt5
+import terminal_mt5
 
 import banco
 from conexao import Guarda, janela_de
@@ -182,7 +183,7 @@ def main():
 
     db = banco.abrir(args.db, SCHEMA)
 
-    if not mt5.initialize():
+    if not terminal_mt5.iniciar(mt5):
         raise SystemExit(f"initialize falhou: {mt5.last_error()}")
     if not mt5.symbol_select(sym, True) or not mt5.market_book_add(sym):
         raise SystemExit(f"nao foi possivel assinar o livro de {sym}: {mt5.last_error()}")
