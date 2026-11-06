@@ -135,6 +135,20 @@ class TestAtivos(unittest.TestCase):
         r = players.montar(db, DIA, "PETR4")
         self.assertEqual((r["vazio"], r["motivo"]), (True, "tabela_de_ontem"))
 
+    def test_zeramento_da_tabela_corta_o_saldo_de_ontem(self):
+        # 6/11/2026: WINZ26 das 08:55 as 09:00 com a tabela de ontem (nao identica a ultima foto gravada); o Goldman, que
+        # ainda nao tinha operado hoje, ficava com o saldo de ontem o dia todo
+        h9 = DIA * DIA_MS + 9 * 3_600_000
+        saldo = [(h9 - 60_000, "Goldman", 500, None, 900, 400), (h9 - 60_000, "XP", -500, None, 400, 900),
+                 (h9, "XP", 3, None, 3, 0), (h9 + 10_000, "XP", 4, None, 4, 0)]
+        r = players.montar(banco(saldo), DIA)
+        self.assertEqual(r["series"]["XP"]["saldo"], [3, 4])
+        self.assertNotIn("Estrangeiro", r["series"])
+        # tabela quase vazia na ultima foto da tarde nao e zeramento
+        tarde = DIA * DIA_MS + 18 * 3_600_000
+        saldo = [(tarde, "XP", 50, None, 90, 40), (tarde + 10_000, "XP", 1, None, 1, 0)]
+        self.assertEqual(players.montar(banco(saldo), DIA)["fotos"], 2)
+
     def test_unidade(self):
         self.assertEqual([players.unidade(a) for a in ("WINZ26", "WDOF27", "VALE3", "BOVA11")],
                          ["contratos", "contratos", "ações", "cotas"])

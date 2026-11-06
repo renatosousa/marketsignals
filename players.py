@@ -244,6 +244,30 @@ def sem_tabela_de_ontem(con, ativo, lo, linhas):
     return linhas[i:]
 
 
+def desde_o_zeramento(linhas, queda=0.5, ate_h=10.5):
+    """Corta as fotos de antes do zeramento da tabela. Ate a abertura o Tryd mostra o saldo do pregao anterior e so zera
+    quando o pregao comeca (contratos 09:00, acoes 10:00); se a tabela de ontem nao for identica a ultima foto gravada
+    (6/11/2026: WINZ26 e WDOZ26 das 08:55 as 09:00), sem_tabela_de_ontem nao a reconhece. Pior que a serie errada: a
+    corretora que estava na tabela de ontem e ainda nao operou hoje ficava com o saldo de ontem o dia todo. Zeramento = a
+    soma de qtdc (compras acumuladas) cai abaixo de `queda` x a da foto anterior e continua abaixo na foto seguinte (uma
+    leitura incompleta isolada nao conta), antes das `ate_h` horas: em 4/11/2026 a ultima foto (18:29:51) veio quase
+    vazia e, sem esse limite, o dia inteiro seria descartado."""
+    tempos, tot = [], {}
+    for ts, _, _, _, c, _ in linhas:
+        if ts not in tot:
+            tempos.append(ts)
+            tot[ts] = 0.0
+        tot[ts] += _num(c) or 0.0
+    corte = None
+    for i in range(1, len(tempos) - 1):
+        if tempos[i] % DIA_MS >= ate_h * 3_600_000:
+            break
+        antes, agora, depois = tot[tempos[i - 1]], tot[tempos[i]], tot[tempos[i + 1]]
+        if antes > 0 and agora < queda * antes and depois < queda * antes:
+            corte = tempos[i]
+    return linhas if corte is None else [r for r in linhas if r[0] >= corte]
+
+
 def montar(con, dia, ativo=None):
     """Resposta do /api/players. `dia` = indice do dia (ts_ms // 86400000) ou None para o ultimo com saldo do ativo;
     `ativo` = codigo do Tryd (WINZ26, PETR4...) ou None para o primeiro do seletor (o WIN) no ultimo dia coletado."""
@@ -263,6 +287,7 @@ def montar(con, dia, ativo=None):
                          "ORDER BY ts_ms", (ativo, lo, hi)).fetchall()
     havia = bool(linhas)
     linhas = sem_tabela_de_ontem(con, ativo, lo, linhas)
+    linhas = desde_o_zeramento(linhas)
     if not linhas:
         return {"vazio": True, "ativo": ativo, "dia": dia, "ativos": ativos, "unidade": unidade(ativo),
                 **({"motivo": "tabela_de_ontem"} if havia else {})}
