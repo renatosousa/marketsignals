@@ -449,16 +449,15 @@ def gex(pos, spot, dia_iso, r, ivs=None, iv_padrao=None, n_wall=2, faixa=GEX_FAI
 def implicito(con, dia_ms, abertura, du_min=OPC_DU_MIN):
     """Desvio diario implicito pela IV ATM do BOVA11 na ultima leitura do pregao (vencimento mais proximo com
     du_min+ dias uteis). -> dict(iv, vencimento, sig_dia_pts, sig_venc_pts) ou None"""
-    ts = con.execute("SELECT max(ts_ms) FROM opcoes_resumo WHERE subjacente='BOVA11' AND ts_ms BETWEEN ? AND ? "
-                     "AND atm_iv IS NOT NULL", (dia_ms + SESSAO[0], dia_ms + SESSAO[1])).fetchone()[0]
-    if ts is None:
+    # ultima leitura de CADA vencimento: dois coletores gravam em instantes diferentes (mensais pelo MT5, semanais
+    # pelo RTD do Profit), entao o max(ts_ms) geral pode nao ter o vencimento procurado
+    rows = con.execute("SELECT vencimento, t_anos, atm_iv, max(ts_ms) FROM opcoes_resumo WHERE subjacente='BOVA11' "
+                       "AND ts_ms BETWEEN ? AND ? AND atm_iv IS NOT NULL GROUP BY vencimento",
+                       (dia_ms + SESSAO[0], dia_ms + SESSAO[1])).fetchall()
+    rows = sorted(r for r in rows if r[1] >= du_min / 252)
+    if not rows:
         return None
-    r = con.execute("SELECT vencimento, t_anos, atm_iv FROM opcoes_resumo WHERE subjacente='BOVA11' AND ts_ms=? "
-                    "AND atm_iv IS NOT NULL AND t_anos >= ? ORDER BY vencimento LIMIT 1",
-                    (ts, du_min / 252)).fetchone()
-    if not r:
-        return None
-    venc, t_anos, iv = r
+    venc, t_anos, iv, ts = rows[0]
     return dict(iv=iv, vencimento=venc, t=ts / 1000, sig_dia_pts=abertura * iv / math.sqrt(252),
                 sig_venc_pts=abertura * iv * math.sqrt(t_anos))
 

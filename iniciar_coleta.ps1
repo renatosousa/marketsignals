@@ -9,6 +9,9 @@ $coletas = [ordered]@{
     # acoes nao tem historico de ticks na Genial (copy_ticks espera ~100 s e trava o MT5): agressao pelo tick ao vivo
     'BOVA11'        = @('BOVA11', '--db', 'dados/book.db', '--trades-tick')
     'BOVA11_opcoes' = @('BOVA11', '--db', 'dados/book.db', '--script', 'coletor_opcoes.py')
+    # semanais do BOVA11 (W1/W2/W4/W5) pelo RTD do Profit: o MT5 da Genial deixou de listar as semanais em nov/2026.
+    # Precisa do Profit aberto e logado (sem ele o coletor espera); grava nas mesmas tabelas de opcoes
+    'BOVA11_semanais' = @('BOVA11', '--db', 'dados/book.db', '--script', 'coletor_opcoes_rtd.py')
     'MACRO'         = @('MACRO', '--db', 'dados/book.db', '--script', 'coletor_macro.py')
     # VIX (CBOE, atrasado ~15 min) pela cotacao publica da Cboe, sem login; substitui o coletor da IBKR
     'VIX'           = @('VIX', '--db', 'dados/book.db', '--script', 'coletor_vix.py')

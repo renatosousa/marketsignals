@@ -163,7 +163,7 @@ def dados(con, janela):
     res = q("SELECT ts_ms, vencimento, atm_iv, rr25, neg_call_compra - neg_call_venda, "
             "neg_put_compra - neg_put_venda FROM opcoes_resumo WHERE subjacente='BOVA11' "
             "AND ts_ms BETWEEN ? AND ? ORDER BY ts_ms", t0, t1)
-    vencs = sorted({r[1] for r in res})[:3]
+    vencs = sorted({r[1] for r in res})[:4]  # semanais (coletor_opcoes_rtd) + mensais (coletor_opcoes); 4 cores
     atm = {v: g.ultimo([(r[0], r[2]) for r in res if r[1] == v]) for v in vencs}
     rr = {v: g.ultimo([(r[0], r[3]) for r in res if r[1] == v]) for v in vencs}
     fc, fp = [0.0] * g.n, [0.0] * g.n
