@@ -185,6 +185,16 @@ class TestRlp(unittest.TestCase):
         xp = {c["corretora"]: c for c in r["corretoras"]}["XP"]
         self.assertAlmostEqual(xp["rlp"], 15 / 20)  # XP: 15 dos 20 contratos que viu na fita eram RLP
 
+    def test_fita_de_ontem_com_data_na_hora_e_ignorada(self):
+        # 6/11/2026: os 100 ultimos negocios de ontem vieram as 08:55 com a data na hora e `num` maior que os de hoje
+        ontem = players._data_br(DIA - 1) + " 18:31:22.221"
+        fita = [(DIA, "WINZ26", 9_000_000, T0 - 3 * 3_600_000, ontem, 7, 170000, "XP", "XP", "RLP", "="),
+                (DIA, "WINZ26", 10, T0, players._data_br(DIA) + " 12:00:00.000", 5, 170000, "Goldman", "XP", "RLP", "="),
+                (DIA, "WINZ26", 20, T0 + 600_000, "12:10:00.000", 3, 170000, "XP", "Ideal", "Comprador", "+")]
+        r = players.montar(banco([(T0, "XP", 1, 1, 1, 0)], fita), DIA)
+        self.assertEqual(r["negocios_fita"], 2)
+        self.assertGreater(r["rlp"]["t"][-1], (T0 + 300_000) // 1000)  # chega ao negocio das 12:10 (antes parava as 09:02)
+
     def test_sem_fita(self):
         r = players.montar(banco([(T0, "XP", 1, 1, 1, 0)]), DIA)
         self.assertEqual(r["rlp"]["t"], [])

@@ -131,6 +131,12 @@ class Tryd:
                 continue
             vistos.add(n)
             hora, qtd, preco, comprador, vendedor, agressor, var = det
+            if isinstance(hora, str) and len(hora) > 11 and hora[2] == "/":
+                # com negocios de dois dias na janela o Tryd poe a data ("05/11/2026 18:31:22.221", 6/11/2026): o de
+                # outro dia (a fita de ontem antes da abertura) nao entra; o de hoje fica so com a hora, como sempre
+                if hora[:10] != datetime.utcfromtimestamp(ts / 1000).strftime("%d/%m/%Y"):
+                    continue
+                hora = hora[11:]
             novos.append((ts // 86_400_000, ativo, n, ts, hora, qtd, preco, comprador, vendedor, agressor, var))
         if len(vistos) > VISTOS_MAX:
             corte = max(vistos) - VISTOS_MAX * 5  # `num` anda de 10 em 10: guarda a metade mais recente

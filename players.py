@@ -20,6 +20,7 @@ acoes (BOVA11 em cotas), com foto a cada 60 s e sem fita (o coletor so le o sald
           (sinal de varejo). A fita capta 45-75% dos negocios (a janela do Tryd guarda 31 linhas), entao e uma amostra;
           o saldo acima e a fonte exata dos totais.
 """
+import datetime
 import re
 
 import numpy as np
@@ -154,28 +155,40 @@ _CACHE_FITA = {}  # (ativo, dia) -> {"upto": minuto (exclusivo), "agg": {(minuto
 MINUTOS_ABERTOS = 2  # os ultimos minutos sao relidos a cada chamada: negocios descartados na leitura entram na passada seguinte
 
 
+# 6/11/2026: com negocios de dois dias na janela, o Tryd poe a data na hora ("05/11/2026 18:31:22.221") e os 100 ultimos
+# negocios de ontem entraram com o dia de hoje. O `num` deles (72 milhoes) e maior que o de hoje (15 milhoes): o ultimo
+# negocio "do dia" virou um de ontem capturado as 08:55 e o RLP/agressao do /players parou as 08:57 o dia todo.
+_SO_DO_DIA = "AND NOT (hora LIKE '__/__/____%' AND substr(hora, 1, 10) <> ?)"
+
+
+def _data_br(dia):
+    return (datetime.date(1970, 1, 1) + datetime.timedelta(days=dia)).strftime("%d/%m/%Y")
+
+
 def fita_agregada(con, ativo, dia):
     """A fita do dia agregada por minuto/corretoras/agressor. Ler os 1,7 milhao de negocios das 11h no Python levava 4 s e
     crescia; no SQLite sao 2 s por chamada. Aqui os minutos fechados (todos menos os ultimos MINUTOS_ABERTOS) sao somados
     uma vez e guardados em _CACHE_FITA; cada chamada so le o que veio depois (indice ix_tryd_fita_ts, ver coletor_tryd.py).
     -> (agg [(minuto, comprador, vendedor, agressor, soma_qtd, n)], n, num_min, num_max)."""
-    ult = con.execute("SELECT ts_ms FROM tryd_fita WHERE ativo=? AND dia=? ORDER BY num DESC LIMIT 1", (ativo, dia)).fetchone()
+    d = _data_br(dia)
+    ult = con.execute(f"SELECT ts_ms FROM tryd_fita WHERE ativo=? AND dia=? {_SO_DO_DIA} ORDER BY num DESC LIMIT 1",
+                      (ativo, dia, d)).fetchone()
     if not ult:
         return [], 0, None, None
-    n, nmin, nmax = con.execute("SELECT count(*), min(num), max(num) FROM tryd_fita WHERE ativo=? AND dia=?",
-                                (ativo, dia)).fetchone()
+    n, nmin, nmax = con.execute(f"SELECT count(*), min(num), max(num) FROM tryd_fita WHERE ativo=? AND dia=? {_SO_DO_DIA}",
+                                (ativo, dia, d)).fetchone()
     q = ("SELECT ts_ms / 60000, comprador, vendedor, agressor, sum(qtd), count(*) FROM tryd_fita WHERE ativo=? AND dia=? "
-         "AND ts_ms >= ? AND ts_ms < ? GROUP BY 1, 2, 3, 4")
+         f"AND ts_ms >= ? AND ts_ms < ? {_SO_DO_DIA} GROUP BY 1, 2, 3, 4")
     est = _CACHE_FITA.setdefault((ativo, dia), {"upto": 0, "agg": {}})
     alvo = max(est["upto"], ult[0] // 60000 - MINUTOS_ABERTOS)
     if alvo > est["upto"]:
-        for m, c, v, ag, qtd, k in con.execute(q, (ativo, dia, est["upto"] * 60000, alvo * 60000)):
+        for m, c, v, ag, qtd, k in con.execute(q, (ativo, dia, est["upto"] * 60000, alvo * 60000, d)):
             acc = est["agg"].setdefault((m, c, v, ag), [0, 0])
             acc[0] += qtd or 0
             acc[1] += k
         est["upto"] = alvo
     agg = [(*k, v[0], v[1]) for k, v in est["agg"].items()]
-    agg += list(con.execute(q, (ativo, dia, est["upto"] * 60000, (ult[0] // 60000 + 2) * 60000)))
+    agg += list(con.execute(q, (ativo, dia, est["upto"] * 60000, (ult[0] // 60000 + 2) * 60000, d)))
     return agg, n, nmin, nmax
 
 
