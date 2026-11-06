@@ -180,6 +180,20 @@ def main():
           f"{args.fita * 1000:.0f} ms; acoes ({','.join(acoes) or '-'}): saldo a cada {args.saldo_acoes:.0f} s. "
           f"Ctrl+C para parar.", flush=True)
 
+    ontem = {}  # ativo -> [dia, {(brk, qtd, qtdc, qtdv)} da ultima foto do dia anterior, ou None depois da 1a diferente]
+
+    def repete_ontem(ts, a, ls):
+        """Antes da abertura das acoes (10:00) a janela de saldo ainda mostra a tabela de ontem (6/11/2026): nao grava."""
+        dia = ts // 86_400_000
+        if ontem.get(a, [None])[0] != dia:
+            ant = db.execute("SELECT max(ts_ms) FROM tryd_saldo WHERE ativo=? AND ts_ms<?", (a, dia * 86_400_000)).fetchone()[0]
+            ontem[a] = [dia, set(db.execute("SELECT brk, qtd, qtdc, qtdv FROM tryd_saldo WHERE ativo=? AND ts_ms=?",
+                                            (a, ant))) if ant else None]
+        if ontem[a][1] is not None and {(r[3], r[5], r[12], r[13]) for r in ls} == ontem[a][1]:
+            return True
+        ontem[a][1] = None  # a tabela do dia comecou: nao compara mais
+        return False
+
     def foto(ts, lista, ferrs):
         nonlocal n_saldo
         for a in lista:
@@ -189,6 +203,9 @@ def main():
                                                                      "exportacao DDE ligada")
             if ativas[(a, "SAL")]:
                 ls = tryd.saldo(ts, a)
+                if ls and repete_ontem(ts, a, ls):
+                    log(f"{a}_ontem", "tabela de saldo ainda e a de ontem: nao grava ate a abertura")
+                    continue
                 pendente.append(("tryd_saldo", ls, False))
                 n_saldo += len(ls)
     try:

@@ -225,6 +225,25 @@ def fita_rlp(agg, bins_min=5):
             "acumulado": {g: np.cumsum(v).tolist() for g, v in por_grupo.items() if np.any(v)}}, pct
 
 
+def sem_tabela_de_ontem(con, ativo, lo, linhas):
+    """Tira do inicio do dia as fotos iguais a ultima do dia anterior: antes da abertura das acoes (10:00) a janela de Saldo
+    por corretora do Tryd ainda mostra a tabela de ontem, e o coletor a gravava com a hora de hoje (6/11/2026: PETR4 das
+    08:55 em diante com o saldo final de 5/11). Nos contratos a tabela ja abre zerada."""
+    ant = con.execute("SELECT max(ts_ms) FROM tryd_saldo WHERE ativo=? AND ts_ms<?", (ativo, lo)).fetchone()[0]
+    if ant is None or not linhas:
+        return linhas
+    ref = set(con.execute("SELECT brk, qtd, qtdc, qtdv FROM tryd_saldo WHERE ativo=? AND ts_ms=?", (ativo, ant)))
+    i = 0
+    while i < len(linhas):
+        j = i
+        while j < len(linhas) and linhas[j][0] == linhas[i][0]:
+            j += 1
+        if {(r[1], r[2], r[4], r[5]) for r in linhas[i:j]} != ref:
+            break
+        i = j
+    return linhas[i:]
+
+
 def montar(con, dia, ativo=None):
     """Resposta do /api/players. `dia` = indice do dia (ts_ms // 86400000) ou None para o ultimo com saldo do ativo;
     `ativo` = codigo do Tryd (WINZ26, PETR4...) ou None para o primeiro do seletor (o WIN) no ultimo dia coletado."""
@@ -242,8 +261,11 @@ def montar(con, dia, ativo=None):
     lo, hi = dia * DIA_MS, (dia + 1) * DIA_MS
     linhas = con.execute("SELECT ts_ms, brk, qtd, sagr, qtdc, qtdv FROM tryd_saldo WHERE ativo=? AND ts_ms>=? AND ts_ms<? "
                          "ORDER BY ts_ms", (ativo, lo, hi)).fetchall()
+    havia = bool(linhas)
+    linhas = sem_tabela_de_ontem(con, ativo, lo, linhas)
     if not linhas:
-        return {"vazio": True, "ativo": ativo, "dia": dia, "ativos": ativos, "unidade": unidade(ativo)}
+        return {"vazio": True, "ativo": ativo, "dia": dia, "ativos": ativos, "unidade": unidade(ativo),
+                **({"motivo": "tabela_de_ontem"} if havia else {})}
     ts_ms, series, ultima, tem_agr = saldo_por_grupo(linhas)
     agg, n_fita, nmin, nmax = fita_agregada(con, ativo, dia)
     rlp, pct = fita_rlp(agg)

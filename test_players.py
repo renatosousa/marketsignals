@@ -122,6 +122,19 @@ class TestAtivos(unittest.TestCase):
         self.assertTrue(r["vazio"])
         self.assertEqual(r["ativos"], ["VALE3"])
 
+    def test_tabela_de_ontem_antes_da_abertura_e_ignorada(self):
+        # 6/11/2026: antes das 10:00 o Tryd ainda mostra o saldo final de ontem das acoes
+        ontem = [(T0 - DIA_MS, "XP", 5, None, 5, 0), (T0 - DIA_MS, "UBS", -5, None, 0, 5)]
+        db = banco(ontem + [
+            (T0, "XP", 5, None, 5, 0), (T0, "UBS", -5, None, 0, 5),
+            (T0 + 60_000, "XP", 2, None, 2, 0), (T0 + 60_000, "UBS", -2, None, 0, 2)], ativo="PETR4")
+        r = players.montar(db, DIA, "PETR4")
+        self.assertEqual(r["fotos"], 1)
+        self.assertEqual(r["series"]["XP"]["saldo"], [2])
+        db = banco(ontem + [(T0, "XP", 5, None, 5, 0), (T0, "UBS", -5, None, 0, 5)], ativo="PETR4")
+        r = players.montar(db, DIA, "PETR4")
+        self.assertEqual((r["vazio"], r["motivo"]), (True, "tabela_de_ontem"))
+
     def test_unidade(self):
         self.assertEqual([players.unidade(a) for a in ("WINZ26", "WDOF27", "VALE3", "BOVA11")],
                          ["contratos", "contratos", "ações", "cotas"])

@@ -287,7 +287,9 @@ async function carregar() {
     if (d.vazio) {
       document.getElementById("sub").textContent = "sem dados do Tryd nesse dia";
       aviso.hidden = false;
-      aviso.textContent = `Sem fotos de saldo ${d.ativo ? "do " + d.ativo + " " : ""}para esse dia. O coletor_tryd.py grava das 08:55 às 18:30 (grupo TRYD) com o Tryd aberto e a janela de Saldo por corretora do ativo exportando por DDE.`;
+      aviso.textContent = d.motivo === "tabela_de_ontem"
+        ? `O Tryd ainda mostra a tabela de saldo de ontem do ${d.ativo}: ela zera na abertura do pregão (ações às 10:00).`
+        : `Sem fotos de saldo ${d.ativo ? "do " + d.ativo + " " : ""}para esse dia. O coletor_tryd.py grava das 08:55 às 18:30 (grupo TRYD) com o Tryd aberto e a janela de Saldo por corretora do ativo exportando por DDE.`;
       return;
     }
     dados = d;
