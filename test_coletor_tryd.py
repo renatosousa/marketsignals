@@ -182,6 +182,19 @@ class TestFita(unittest.TestCase):
         t.fita(TS, "WINZ26")
         self.assertLess(len(t.vistos["WINZ26"]), ct.VISTOS_MAX)
 
+    def test_fita_de_ontem_sem_data_antes_da_abertura_e_ignorada(self):
+        # 9/11/2026: as 08:55 a janela so tinha os negocios de sexta, sem a data na hora (18:24) e com `num` alto
+        antes = DIA * 86_400_000 + 8 * 3_600_000 + 55 * 60_000
+        self.dde.itens.update(fita([63_024_070, 63_024_060]))
+        self.dde.itens.update({f"WINZ26_NEGS.DAT.{i}": "18:24:59.958" for i in range(2)})
+        self.assertEqual(self.t.fita(antes, "WINZ26"), [])
+        self.assertEqual(self.t.vistos["WINZ26"], set())  # fora de `vistos`: o num alto nao distorce o corte da memoria
+        self.dde.itens.update(fita([70, 63_024_070, 63_024_060]))
+        self.dde.itens["WINZ26_NEGS.DAT.0"] = "09:00:01.000"
+        for i in (1, 2):
+            self.dde.itens[f"WINZ26_NEGS.DAT.{i}"] = "18:24:59.958"
+        self.assertEqual([r[2] for r in self.t.fita(antes + 6 * 60_000, "WINZ26")], [70])
+
 
 class TestBanco(unittest.TestCase):
     def test_gravacao_no_schema(self):

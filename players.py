@@ -158,7 +158,10 @@ MINUTOS_ABERTOS = 2  # os ultimos minutos sao relidos a cada chamada: negocios d
 # 6/11/2026: com negocios de dois dias na janela, o Tryd poe a data na hora ("05/11/2026 18:31:22.221") e os 100 ultimos
 # negocios de ontem entraram com o dia de hoje. O `num` deles (72 milhoes) e maior que o de hoje (15 milhoes): o ultimo
 # negocio "do dia" virou um de ontem capturado as 08:55 e o RLP/agressao do /players parou as 08:57 o dia todo.
-_SO_DO_DIA = "AND NOT (hora LIKE '__/__/____%' AND substr(hora, 1, 10) <> ?)"
+# 9/11/2026: com a janela SO com negocios de ontem (antes da abertura) o Tryd nao poe a data, e os 100 de sexta entraram
+# as 08:55 com a hora sem data (18:24...). Negocio com hora depois do instante da captura (+2 min de folga) e de outro dia.
+_SO_DO_DIA = ("AND NOT (hora LIKE '__/__/____%' AND substr(hora, 1, 10) <> ?) "
+              "AND NOT (hora GLOB '[0-9][0-9]:*' AND substr(hora, 1, 8) > time(ts_ms / 1000 + 120, 'unixepoch'))")
 
 
 def _data_br(dia):
@@ -238,6 +241,13 @@ def fita_rlp(agg, bins_min=5):
             "acumulado": {g: np.cumsum(v).tolist() for g, v in por_grupo.items() if np.any(v)}}, pct
 
 
+def abertura_ms(ativo):
+    """Inicio do pregao (ms desde a meia-noite): contratos 09:00, acoes 10:00. Antes disso nao ha negocio e a janela de
+    Saldo do Tryd ainda mostra a tabela do pregao anterior (9/11/2026: PETR4 de sexta gravada das 08:55 em diante, com
+    9 das 36 corretoras diferentes da ultima foto de sexta, entao sem_tabela_de_ontem nao a reconhecia)."""
+    return (9 if _FUTURO.match(ativo) else 10) * 3_600_000
+
+
 def sem_tabela_de_ontem(con, ativo, lo, linhas):
     """Tira do inicio do dia as fotos iguais a ultima do dia anterior: antes da abertura das acoes (10:00) a janela de Saldo
     por corretora do Tryd ainda mostra a tabela de ontem, e o coletor a gravava com a hora de hoje (6/11/2026: PETR4 das
@@ -299,6 +309,7 @@ def montar(con, dia, ativo=None):
     linhas = con.execute("SELECT ts_ms, brk, qtd, sagr, qtdc, qtdv FROM tryd_saldo WHERE ativo=? AND ts_ms>=? AND ts_ms<? "
                          "ORDER BY ts_ms", (ativo, lo, hi)).fetchall()
     havia = bool(linhas)
+    linhas = [r for r in linhas if r[0] - lo >= abertura_ms(ativo)]
     linhas = sem_tabela_de_ontem(con, ativo, lo, linhas)
     linhas = desde_o_zeramento(linhas)
     if not linhas:

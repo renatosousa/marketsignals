@@ -37,6 +37,7 @@ LINHAS_SALDO, LINHAS_FITA = 500, 100  # a janela de negocios guarda 100 linhas (
 FALHAS_MAX = 3  # testes seguidos sem o ativo para dar a janela como fechada (ver ativa_estavel)
 LEITURAS_LINHA = 3  # tentativas por linha de saldo vazia/incoerente (ver Tryd.linha_saldo)
 VISTOS_MAX = 50_000  # numeros de negocio lembrados por ativo (o `num` so cresce dentro do dia)
+ABERTURA_CONTRATOS_H, ABERTURA_ACOES_H = 9, 10  # antes disso a janela de Saldo mostra a tabela do pregao anterior
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tryd_saldo (
     ts_ms INTEGER NOT NULL, ativo TEXT NOT NULL, linha INTEGER NOT NULL,
@@ -61,7 +62,7 @@ class Tryd:
     """Leitor das janelas de corretoras. `abrir` cria a conexao DDE (injetavel nos testes)."""
 
     def __init__(self, abrir=Dde):
-        self._abrir, self.dde, self.vistos = abrir, None, {}
+        self._abrir, self.dde, self.vistos, self.velhos = abrir, None, {}, {}
         self.estado, self.falhas = {}, {}
 
     def conectar(self):
@@ -122,21 +123,28 @@ class Tryd:
         preco, comprador, vendedor, agressor, var). A linha so vale se o numero continua o mesmo depois de ler os
         detalhes (a janela e redesenhada a qualquer momento e empurra as linhas); senao fica para a proxima leitura."""
         nome, vistos, novos = f"{ativo}_NEGS", self.vistos.setdefault(ativo, set()), []
+        velhos = self.velhos.setdefault(ativo, set())  # negocios de outro dia: fora de `vistos` (num alto distorce o corte)
         for i in range(LINHAS_FITA):
             n = self._ler(f"{nome}.NUM.{i}")
-            if not isinstance(n, int) or n in vistos:
+            if not isinstance(n, int) or n in vistos or n in velhos:
                 continue
             det = [self._ler(f"{nome}.{c}.{i}") for c in FITA_CAMPOS]
             if self._ler(f"{nome}.NUM.{i}") != n:
                 continue
-            vistos.add(n)
             hora, qtd, preco, comprador, vendedor, agressor, var = det
             if isinstance(hora, str) and len(hora) > 11 and hora[2] == "/":
                 # com negocios de dois dias na janela o Tryd poe a data ("05/11/2026 18:31:22.221", 6/11/2026): o de
                 # outro dia (a fita de ontem antes da abertura) nao entra; o de hoje fica so com a hora, como sempre
                 if hora[:10] != datetime.utcfromtimestamp(ts / 1000).strftime("%d/%m/%Y"):
+                    velhos.add(n)
                     continue
                 hora = hora[11:]
+            elif isinstance(hora, str) and hora[:8] > datetime.utcfromtimestamp(ts / 1000 + 120).strftime("%H:%M:%S"):
+                # com a janela SO com negocios de ontem o Tryd nao poe a data (9/11/2026: os de sexta, 18:24, as 08:55):
+                # negocio com hora depois da captura (+2 min de folga) e de outro dia
+                velhos.add(n)
+                continue
+            vistos.add(n)
             novos.append((ts // 86_400_000, ativo, n, ts, hora, qtd, preco, comprador, vendedor, agressor, var))
         if len(vistos) > VISTOS_MAX:
             corte = max(vistos) - VISTOS_MAX * 5  # `num` anda de 10 em 10: guarda a metade mais recente
@@ -200,7 +208,7 @@ def main():
         ontem[a][1] = None  # a tabela do dia comecou: nao compara mais
         return False
 
-    def foto(ts, lista, ferrs):
+    def foto(ts, lista, ferrs, abertura_h):
         nonlocal n_saldo
         for a in lista:
             for ferr in ferrs:
@@ -208,6 +216,11 @@ def main():
                 log(f"{a}_{ferr}", "ativa" if ativas[(a, ferr)] else "inativa: abra a janela no Tryd com a "
                                                                      "exportacao DDE ligada")
             if ativas[(a, "SAL")]:
+                if ts % 86_400_000 < abertura_h * 3_600_000:
+                    # antes da abertura nao ha negocio e a janela mostra a tabela do pregao anterior; ela nem sempre e
+                    # igual a ultima foto gravada (9/11/2026: PETR4 de sexta com 9 de 36 corretoras diferentes)
+                    log(f"{a}_ontem", "antes da abertura: a tabela de saldo e a do pregao anterior; nao grava")
+                    continue
                 ls = tryd.saldo(ts, a)
                 if ls and repete_ontem(ts, a, ls):
                     log(f"{a}_ontem", "tabela de saldo ainda e a de ontem: nao grava ate a abertura")
@@ -222,7 +235,7 @@ def main():
                 ts = int(local_br_ms())
                 if t >= prox_saldo:  # foto do saldo e reteste das janelas
                     prox_saldo = t + args.saldo
-                    foto(ts, ativos, ("SAL", "NEGS"))
+                    foto(ts, ativos, ("SAL", "NEGS"), ABERTURA_CONTRATOS_H)
                     if not any(ativas.values()):
                         # nenhuma janela responde: a conversa DDE pode ter morrido com a exportacao religada no Tryd
                         # (4/11/2026: das 08:55 em diante tudo None ate reiniciar o coletor). Reabre na proxima volta.
@@ -230,7 +243,7 @@ def main():
                         continue
                 if t >= prox_acoes and acoes:
                     prox_acoes = t + args.saldo_acoes
-                    foto(ts, acoes, ("SAL",))
+                    foto(ts, acoes, ("SAL",), ABERTURA_ACOES_H)
                 for a in ativos:
                     if ativas.get((a, "NEGS")):
                         novos = tryd.fita(ts, a)

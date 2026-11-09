@@ -135,6 +135,16 @@ class TestAtivos(unittest.TestCase):
         r = players.montar(db, DIA, "PETR4")
         self.assertEqual((r["vazio"], r["motivo"]), (True, "tabela_de_ontem"))
 
+    def test_acoes_antes_das_10h_sao_ignoradas_mesmo_diferentes_de_ontem(self):
+        # 9/11/2026: a tabela de sexta das 08:55 tinha 9 de 36 corretoras diferentes da ultima foto gravada de sexta
+        h = DIA * DIA_MS
+        db = banco([(T0 - DIA_MS, "XP", 5, None, 5, 0),
+                    (h + 9 * 3_600_000, "XP", 6, None, 6, 0), (h + 9 * 3_600_000, "UBS", -6, None, 0, 6),
+                    (h + 10 * 3_600_000 + 60_000, "XP", 1, None, 1, 0)], ativo="PETR4")
+        r = players.montar(db, DIA, "PETR4")
+        self.assertEqual(r["series"]["XP"]["saldo"], [1])
+        self.assertNotIn("UBS", r["series"])
+
     def test_zeramento_da_tabela_corta_o_saldo_de_ontem(self):
         # 6/11/2026: WINZ26 das 08:55 as 09:00 com a tabela de ontem (nao identica a ultima foto gravada); o Goldman, que
         # ainda nao tinha operado hoje, ficava com o saldo de ontem o dia todo
@@ -194,6 +204,16 @@ class TestRlp(unittest.TestCase):
         r = players.montar(banco([(T0, "XP", 1, 1, 1, 0)], fita), DIA)
         self.assertEqual(r["negocios_fita"], 2)
         self.assertGreater(r["rlp"]["t"][-1], (T0 + 300_000) // 1000)  # chega ao negocio das 12:10 (antes parava as 09:02)
+
+    def test_fita_de_ontem_sem_data_na_hora_e_ignorada(self):
+        # 9/11/2026: as 08:55 a janela so tinha negocios de sexta e o Tryd nao pos a data na hora
+        antes = DIA * 86_400_000 + 8 * 3_600_000 + 55 * 60_000
+        fita = [(DIA, "WINZ26", 9_000_000, antes, "18:24:59.958", 7, 170000, "XP", "XP", "RLP", "="),
+                (DIA, "WINZ26", 10, T0, "12:00:00.000", 5, 170000, "Goldman", "XP", "RLP", "="),
+                (DIA, "WINZ26", 20, T0 + 600_000, "12:10:00.000", 3, 170000, "XP", "Ideal", "Comprador", "+")]
+        r = players.montar(banco([(T0, "XP", 1, 1, 1, 0)], fita), DIA)
+        self.assertEqual(r["negocios_fita"], 2)
+        self.assertGreater(r["rlp"]["t"][-1], (T0 + 300_000) // 1000)
 
     def test_sem_fita(self):
         r = players.montar(banco([(T0, "XP", 1, 1, 1, 0)]), DIA)
