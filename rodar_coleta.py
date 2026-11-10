@@ -49,7 +49,8 @@ def main():
         if agora.weekday() < 5 and t_ini <= agora < t_fim:
             restante = int((t_fim - agora).total_seconds())
             print(f"[{agora:%d/%m %H:%M:%S}] iniciando coletor ({restante}s ate o fim)", flush=True)
-            r = subprocess.run([PY, str(AQUI / script), symbol, str(restante), *extra], cwd=AQUI)
+            # via executar.py: o coletor roda fora do modo de eficiencia do Windows (desempenho.py)
+            r = subprocess.run([PY, str(AQUI / "executar.py"), str(AQUI / script), symbol, str(restante), *extra], cwd=AQUI)
             print(f"[{datetime.now():%d/%m %H:%M:%S}] coletor saiu (codigo {r.returncode})", flush=True)
             time.sleep(10)
         else:

@@ -22,6 +22,7 @@ Todos os ts sao hora do servidor MT5 (Brasilia) codificada como epoch "UTC", com
 """
 import argparse
 import json
+import gzip
 import math
 import re
 import sqlite3
@@ -36,6 +37,7 @@ import numpy as np
 
 import banco
 import curvas
+import desempenho
 import grafico_quant as gq
 import leiloes
 import opcoes_manual as om
@@ -756,6 +758,7 @@ def main():
     ap.add_argument("--porta", type=int, default=8050)
     ap.add_argument("--host", default="127.0.0.1", help="enderecos de escuta, separados por virgula; para acesso remoto inclua o IP do Tailscale (100.x.y.z), nunca 0.0.0.0: a pagina nao tem senha e o POST /api/opcoes-manual grava no banco")
     args = ap.parse_args()
+    desempenho.sem_modo_eficiencia()  # o vigia sobe o dashboard sem janela: no modo de eficiencia ficava ~5x mais lento
     app = App(Path(args.db).resolve())
 
     class H(BaseHTTPRequestHandler):
@@ -766,6 +769,12 @@ def main():
             self.send_response(codigo)
             self.send_header("Content-Type", tipo)
             self.send_header("Cache-Control", "no-store")
+            self.send_header("Vary", "Accept-Encoding")
+            # gzip: o JSON do /api/dados (~220 KB) e do /api/players (~120 KB) cai para ~10-20% pelo Tailscale/4G
+            if len(corpo) > 1024 and "gzip" in (self.headers.get("Accept-Encoding") or ""):
+                corpo = gzip.compress(corpo, 5)
+                self.send_header("Content-Encoding", "gzip")
+            self.send_header("Content-Length", str(len(corpo)))
             self.end_headers()
             self.wfile.write(corpo)
 

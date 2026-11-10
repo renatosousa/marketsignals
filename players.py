@@ -178,20 +178,27 @@ def fita_agregada(con, ativo, dia):
                       (ativo, dia, d)).fetchone()
     if not ult:
         return [], 0, None, None
-    n, nmin, nmax = con.execute(f"SELECT count(*), min(num), max(num) FROM tryd_fita WHERE ativo=? AND dia=? {_SO_DO_DIA}",
-                                (ativo, dia, d)).fetchone()
-    q = ("SELECT ts_ms / 60000, comprador, vendedor, agressor, sum(qtd), count(*) FROM tryd_fita WHERE ativo=? AND dia=? "
-         f"AND ts_ms >= ? AND ts_ms < ? {_SO_DO_DIA} GROUP BY 1, 2, 3, 4")
-    est = _CACHE_FITA.setdefault((ativo, dia), {"upto": 0, "agg": {}})
+    # contagem e faixa de `num` vem da mesma agregacao (antes um count(*) do dia inteiro a cada chamada: 1,1 s no WIN)
+    q = ("SELECT ts_ms / 60000, comprador, vendedor, agressor, sum(qtd), count(*), min(num), max(num) FROM tryd_fita "
+         f"WHERE ativo=? AND dia=? AND ts_ms >= ? AND ts_ms < ? {_SO_DO_DIA} GROUP BY 1, 2, 3, 4")
+    est = _CACHE_FITA.setdefault((ativo, dia), {"upto": 0, "agg": {}, "n": 0, "nmin": None, "nmax": None})
     alvo = max(est["upto"], ult[0] // 60000 - MINUTOS_ABERTOS)
     if alvo > est["upto"]:
-        for m, c, v, ag, qtd, k in con.execute(q, (ativo, dia, est["upto"] * 60000, alvo * 60000, d)):
+        for m, c, v, ag, qtd, k, lo, hi in con.execute(q, (ativo, dia, est["upto"] * 60000, alvo * 60000, d)):
             acc = est["agg"].setdefault((m, c, v, ag), [0, 0])
             acc[0] += qtd or 0
             acc[1] += k
+            est["n"] += k
+            est["nmin"] = lo if est["nmin"] is None else min(est["nmin"], lo)
+            est["nmax"] = hi if est["nmax"] is None else max(est["nmax"], hi)
         est["upto"] = alvo
     agg = [(*k, v[0], v[1]) for k, v in est["agg"].items()]
-    agg += list(con.execute(q, (ativo, dia, est["upto"] * 60000, (ult[0] // 60000 + 2) * 60000, d)))
+    n, nmin, nmax = est["n"], est["nmin"], est["nmax"]
+    for m, c, v, ag, qtd, k, lo, hi in con.execute(q, (ativo, dia, est["upto"] * 60000, (ult[0] // 60000 + 2) * 60000, d)):
+        agg.append((m, c, v, ag, qtd, k))
+        n += k
+        nmin = lo if nmin is None else min(nmin, lo)
+        nmax = hi if nmax is None else max(nmax, hi)
     return agg, n, nmin, nmax
 
 
