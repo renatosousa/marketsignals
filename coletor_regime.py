@@ -154,17 +154,19 @@ def main():
         print(f"fluxo de investidores (B3): {n_pub} publicacoes, {n_dia} linhas diarias", flush=True)
     except Exception as e:
         print(f"aviso: fluxo de investidores nao atualizado ({e.__class__.__name__}: {e})", flush=True)
+    modelo = mr.carregar_modelo()
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    treinar = not args.sem_treino and (modelo is None or not modelo["treinado_em"].startswith(hoje))
+    if treinar:  # antes das features: sem as barras de ontem o win_ret_pct/wdo_ret_pct do D-1 ficava vazio (9/11/2026)
+        mr.atualizar_barras(args.db)
     try:  # variaveis diarias para estimar o fluxo (usa a agressao coletada e as barras de 1 min)
         import features_fluxo as ff
         print(f"features de fluxo: {ff.construir(args.db)} dia(s)", flush=True)
     except Exception as e:
         print(f"aviso: features de fluxo nao atualizadas ({e.__class__.__name__}: {e})", flush=True)
 
-    modelo = mr.carregar_modelo()
-    hoje = datetime.now().strftime("%Y-%m-%d")
-    if not args.sem_treino and (modelo is None or not modelo["treinado_em"].startswith(hoje)):
+    if treinar:
         print("treinando o modelo do dia...", flush=True)
-        mr.atualizar_barras(args.db)
         con = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
         modelo = mr.treinar(con)
         con.close()
