@@ -92,6 +92,29 @@ def conferir_rolagem(db, ativos=("WIN$", "WDO$"), tolerancia=0.002):
     return refeitos
 
 
+def sincronizar_mt5(mt5, s, tentativas=15, pausa=1.0):
+    """Espera o terminal trazer o historico de um simbolo sem grafico aberto.
+
+    A 1a copia devolve o cache local, que pode estar parado ha horas, e o resto chega aos poucos
+    (12/11/2026: o DI1F29 de 11/11 veio so ate 09:24 e o di29_bps do dia ficou vazio). O cache esta
+    em dia quando a soma do volume das barras de 1 min de cada um dos ultimos dias bate com a barra
+    diaria (symbol_info.time nao serve: as acoes ganham um tick sem negocio as 06:00)."""
+    for _ in range(tentativas):
+        diarias = mt5.copy_rates_from_pos(s, mt5.TIMEFRAME_D1, 0, 2)
+        if diarias is None or not len(diarias):
+            return True  # sem referencia: segue com o que houver
+        em_dia = True
+        for d in diarias:
+            ini = datetime.fromtimestamp(int(d["time"]), timezone.utc)
+            m1 = mt5.copy_rates_range(s, mt5.TIMEFRAME_M1, ini, ini + timedelta(days=1, seconds=-1))
+            soma = sum(int(x["tick_volume"]) for x in m1) if m1 is not None else 0
+            em_dia &= soma >= 0.98 * int(d["tick_volume"])
+        if em_dia:
+            return True
+        time.sleep(pausa)
+    return False
+
+
 def backfill_mt5(db, inicio, fim, ativos=None):
     import MetaTrader5 as mt5
     import terminal_mt5
@@ -100,6 +123,8 @@ def backfill_mt5(db, inicio, fim, ativos=None):
         raise SystemExit(f"MT5: {mt5.last_error()}")
     for s in (ativos or MT5_ATIVOS + CESTA):
         mt5.symbol_select(s, True)
+        if not sincronizar_mt5(mt5, s):
+            print(f"aviso: historico do MT5 de {s} ainda incompleto", flush=True)
         total, a = 0, inicio
         while a < fim:
             b = min(a + timedelta(days=10), fim)
