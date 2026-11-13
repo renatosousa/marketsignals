@@ -479,3 +479,25 @@ commit com push.
 - Para o dia em curso a série vem do `mid`; a referência histórica vem do fechamento da barra. A diferença é pequena,
   mas existe.
 - O orçamento de tempo de 5.3 não foi medido: é a meta, a conferir na fase 1.
+
+## 10. Adendo de implementação (13/11/2026)
+
+Decisão do dono: implementar como **painel novo**, mantendo o atual para comparação. Isso muda as seções 5 e 7 assim:
+
+- **Páginas novas com prefixo `/v2`:** `/v2` (Resumo), `/v2/correlacoes` e `/v2/fluxo`. A rota `/` e as páginas
+  `dashboard.html`, `grafico.html`, `players.html` e `leiloes.html` **não mudam**. A única exceção é um link "Painel novo"
+  na navegação delas, que fica para o fim.
+- **Navegação do painel novo:** Resumo · Correlações · Fluxo · Painel atual (`/`) · Gráfico WIN · Gráfico WDO · Players ·
+  Leilões.
+- **Fase 0 reduzida:** `dashboard.dados()` não é dividida. `estatico/comum.css` e `estatico/comum.js` são usados só
+  pelas páginas `/v2`. Os endpoints `/api/mercado`, `/api/opcoes` e `/api/juros` não são criados.
+- **Adiados:** fase 4 (páginas Mercado, Opções e Juros), o preço em `/players` (6.8, primeiro item) e as mudanças de
+  6.10. A vol implícita × realizada (6.9) entra como cartão no Resumo.
+- **Banco real:** quem implementa não grava em `dados/book.db`. As funções que gravam (`atualizar`) são testadas em
+  banco temporário; a primeira carga no banco real é feita por quem valida.
+- **Processos:** quem implementa não encerra nem reinicia o dashboard nem os coletores. A validação no navegador usa
+  uma segunda instância na porta 8051.
+- **Commits:** feitos por quem valida, ao fim de cada etapa.
+
+Ordem das etapas: A (`correlacoes.py`), B (`estimador_tryd.py`), C (endpoints `/api/correlacoes`, `/api/fluxo`,
+`/api/resumo`, `/api/fechamento`), D (arquivos `estatico/` e as três páginas `/v2`).

@@ -164,6 +164,11 @@ def main():
         print(f"features de fluxo: {ff.construir(args.db)} dia(s)", flush=True)
     except Exception as e:
         print(f"aviso: features de fluxo nao atualizadas ({e.__class__.__name__}: {e})", flush=True)
+    try:  # correlacoes diarias e betas do WIN para o painel novo (/v2)
+        import correlacoes
+        print(f"correlacoes: {correlacoes.atualizar(args.db)} pregao(oes)", flush=True)
+    except Exception as e:
+        print(f"aviso: correlacoes nao atualizadas ({e.__class__.__name__}: {e})", flush=True)
 
     if treinar:
         print("treinando o modelo do dia...", flush=True)
