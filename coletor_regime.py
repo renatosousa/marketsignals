@@ -169,6 +169,11 @@ def main():
         print(f"correlacoes: {correlacoes.atualizar(args.db)} pregao(oes)", flush=True)
     except Exception as e:
         print(f"aviso: correlacoes nao atualizadas ({e.__class__.__name__}: {e})", flush=True)
+    try:  # estimador do fluxo estrangeiro pelo saldo do Tryd, para o placar do painel novo (/v2/fluxo)
+        import estimador_tryd
+        print(f"estimador do Tryd: {estimador_tryd.atualizar(args.db)} dia(s)", flush=True)
+    except Exception as e:
+        print(f"aviso: estimador do Tryd nao atualizado ({e.__class__.__name__}: {e})", flush=True)
 
     if treinar:
         print("treinando o modelo do dia...", flush=True)

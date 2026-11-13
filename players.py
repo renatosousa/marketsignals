@@ -298,6 +298,28 @@ def desde_o_zeramento(linhas, queda=0.5, ate_h=10.5):
     return linhas if corte is None else [r for r in linhas if r[0] >= corte]
 
 
+def fotos_do_dia(con, dia, ativo):
+    """(linhas validas do saldo do dia, havia linhas) com os filtros do pregao: so depois da abertura, sem a tabela de
+    ontem e a partir do zeramento. Linhas = (ts_ms, brk, qtd, sagr, qtdc, qtdv)."""
+    lo, hi = dia * DIA_MS, (dia + 1) * DIA_MS
+    linhas = con.execute("SELECT ts_ms, brk, qtd, sagr, qtdc, qtdv FROM tryd_saldo WHERE ativo=? AND ts_ms>=? AND ts_ms<? "
+                         "ORDER BY ts_ms", (ativo, lo, hi)).fetchall()
+    havia = bool(linhas)
+    linhas = [r for r in linhas if r[0] - lo >= abertura_ms(ativo)]
+    linhas = sem_tabela_de_ontem(con, ativo, lo, linhas)
+    return desde_o_zeramento(linhas), havia
+
+
+def saldo_do_dia(con, dia, ativo):
+    """So o saldo por grupo, sem a fita (que e a parte cara do montar): {"t": [s], "series": {grupo: {"saldo": []}}}
+    ou None sem fotos validas no dia."""
+    linhas, _ = fotos_do_dia(con, dia, ativo)
+    if not linhas:
+        return None
+    ts_ms, series, _, _ = saldo_por_grupo(linhas)
+    return {"t": [x // 1000 for x in ts_ms], "series": series}
+
+
 def montar(con, dia, ativo=None):
     """Resposta do /api/players. `dia` = indice do dia (ts_ms // 86400000) ou None para o ultimo com saldo do ativo;
     `ativo` = codigo do Tryd (WINZ26, PETR4...) ou None para o primeiro do seletor (o WIN) no ultimo dia coletado."""
@@ -312,13 +334,7 @@ def montar(con, dia, ativo=None):
         if not ativos:
             return {"vazio": True, "ativo": None, "dia": dia, "ativos": []}
         ativo = ativos[0]
-    lo, hi = dia * DIA_MS, (dia + 1) * DIA_MS
-    linhas = con.execute("SELECT ts_ms, brk, qtd, sagr, qtdc, qtdv FROM tryd_saldo WHERE ativo=? AND ts_ms>=? AND ts_ms<? "
-                         "ORDER BY ts_ms", (ativo, lo, hi)).fetchall()
-    havia = bool(linhas)
-    linhas = [r for r in linhas if r[0] - lo >= abertura_ms(ativo)]
-    linhas = sem_tabela_de_ontem(con, ativo, lo, linhas)
-    linhas = desde_o_zeramento(linhas)
+    linhas, havia = fotos_do_dia(con, dia, ativo)
     if not linhas:
         return {"vazio": True, "ativo": ativo, "dia": dia, "ativos": ativos, "unidade": unidade(ativo),
                 **({"motivo": "tabela_de_ontem"} if havia else {})}
