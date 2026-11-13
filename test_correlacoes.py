@@ -238,7 +238,7 @@ class TestDecompor(unittest.TestCase):
         self.assertAlmostEqual(d["total_pct"], soma + d["propria_pct"], places=12)
         self.assertAlmostEqual(d["total_pts"], d["total_pct"] * 1000.0)
         self.assertAlmostEqual(d["fatores"][0]["pts"], d["fatores"][0]["pct"] * 1000.0)
-        self.assertEqual([f["nome"] for f in d["fatores"]], ["Dolar", "DI jan/29"])
+        self.assertEqual([f["nome"] for f in d["fatores"]], ["Dólar", "DI jan/29"])
         self.assertEqual(d["n"], 160)
         self.assertIsNotNone(d["r2_hoje"])
 

@@ -37,10 +37,10 @@ PRINCIPAIS = [("WIN$", "WDO$"), ("WIN$", "DI1F29"), ("WDO$", "DI1F29"), ("WIN$",
 FATORES_WIN = ["WDO$", "DI1F29", "SPX_USD"]
 N_MIN = 60
 NOMES = {
-    "WIN$": "WIN", "WDO$": "Dolar", "IND$": "Indice", "BIT$": "Bitcoin",
+    "WIN$": "WIN", "WDO$": "Dólar", "IND$": "Índice", "BIT$": "Bitcoin",
     "DI1F27": "DI jan/27", "DI1F28": "DI jan/28", "DI1F29": "DI jan/29", "DI1F33": "DI jan/33",
-    "SPX_USD": "S&P 500 em dolar", "NDX_USD": "Nasdaq em dolar", "BEWZ39": "EWZ (BDR)",
-    "VALE3": "Vale", "PETR4": "Petrobras", "PRIO3": "PRIO", "ITUB4": "Itau",
+    "SPX_USD": "S&P 500 em dólar", "NDX_USD": "Nasdaq em dólar", "BEWZ39": "EWZ (BDR)",
+    "VALE3": "Vale", "PETR4": "Petrobras", "PRIO3": "PRIO", "ITUB4": "Itaú",
     "BBAS3": "Banco do Brasil", "SMAL11": "Small caps", "GOLD11": "Ouro",
     "IVVB11": "IVVB11", "NASD11": "NASD11",
 }

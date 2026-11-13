@@ -18,6 +18,15 @@ GET /leiloes                             -> resultados dos leiloes do Tesouro co
 GET /api/leiloes[?dia=AAAA-MM-DD]        -> linhas, alertas, resumo e series dos leiloes (leiloes.py); sem dia = o ultimo leilao.
 GET /api/grafico?tf=1|5|15[&ativo=WIN|WDO][&dia=AAAA-MM-DD] -> velas e indicadores do grafico (grafico_quant.py);
                                            sem dia = ultimo pregao com dados do ativo.
+Painel novo (v2, painel_v2.py; ESPEC_DASHBOARD.md secao 10): as paginas ficam em v2_resumo.html,
+v2_correlacoes.html e v2_fluxo.html (etapa D; enquanto nao existirem, a rota devolve 404).
+GET /v2, /v2/correlacoes, /v2/fluxo      -> paginas do painel novo (lidas do disco a cada pedido).
+GET /estatico/<nome>                     -> estatico/comum.css e estatico/comum.js (lista fixa no codigo).
+GET /api/resumo                          -> coleta, regime, decomposicao, pares principais, vol e alertas (cache 5 s).
+GET /api/correlacoes?janela=3600|10800|pregao&alvo=WIN|WDO
+                                          -> tabela com referencia, movel, matriz e decomposicao (cache 30 s).
+GET /api/fluxo?dia=AAAA-MM-DD&ativo=X    -> placar do estrangeiro, mapa, quem acompanha o preco, cesta (cache 30 s).
+GET /api/fechamento?dia=AAAA-MM-DD       -> fechamento do dia: precos, faixas, DI, acoes, vol, players (cache 60 s).
 Todos os ts sao hora do servidor MT5 (Brasilia) codificada como epoch "UTC", como no banco.
 """
 import argparse
@@ -41,6 +50,7 @@ import desempenho
 import grafico_quant as gq
 import leiloes
 import opcoes_manual as om
+import painel_v2
 import players
 import wyckoff
 
@@ -49,7 +59,9 @@ PONTOS = 600            # pontos por serie temporal (define o tamanho do balde)
 CACHE_S = 3.0
 CACHE_PLAYERS_S = 10.0  # o saldo do Tryd muda a cada 10 s
 CACHE_LEILOES_S = 30.0  # o resultado sai uma vez por dia; o calculo (pandas sobre 20 mil linhas) nao precisa rodar a cada pedido
+CACHE_V2_S = {"resumo": 5.0, "correlacoes": 30.0, "fluxo": 30.0, "fechamento": 60.0}
 INICIO_PREGAO_H = 9
+ESTATICOS = {"comum.css": "text/css; charset=utf-8", "comum.js": "application/javascript; charset=utf-8"}
 
 # macro: graficos de variacao % (no maximo 4 series cada) e ativos da tabela de correlacao
 MACRO_GRAFICOS = {
@@ -388,7 +400,23 @@ class App:
         self.lock = threading.Lock()
         self.lock_players = threading.Lock()  # a consulta da fita e longa: nao pode segurar os outros endpoints
         self.lock_leiloes = threading.Lock()
+        self.lock_v2 = threading.Lock()       # endpoints do painel novo (/api/resumo, /api/correlacoes, ...)
         self.graf = gq.Grafico()
+
+    def v2(self, nome, chave, calculo):
+        """JSON dos endpoints do painel novo (painel_v2.py), com cache proprio: `nome` decide o tempo
+        (CACHE_V2_S) e `calculo` recebe a conexao somente leitura."""
+        with self.lock_v2:
+            hit = self.cache.get(chave)
+            if hit and time.time() - hit[0] < CACHE_V2_S[nome]:
+                return hit[1]
+            con = sqlite3.connect(f"file:{self.db}?mode=ro", uri=True, timeout=10)
+            try:
+                corpo = json.dumps(json_limpo(calculo(con)), ensure_ascii=False).encode()
+            finally:
+                con.close()
+            self.cache[chave] = (time.time(), corpo)
+            return corpo
 
     def grafico(self, tf, dia, ativo="WIN"):
         """JSON do /api/grafico; dia None = pregao do ultimo dado do ativo (snapshots do WIN, macro do WDO)."""
@@ -814,6 +842,22 @@ def main():
                                 "application/json")
             elif u.path == "/leiloes":
                 self.enviar(200, (AQUI / "leiloes.html").read_bytes(), "text/html; charset=utf-8")
+            elif u.path in ("/v2", "/v2/correlacoes", "/v2/fluxo"):
+                # painel novo (ESPEC secao 10): as paginas ficam prontas na etapa D; enquanto nao existirem, 404
+                arq = {"/v2": "v2_resumo.html", "/v2/correlacoes": "v2_correlacoes.html",
+                       "/v2/fluxo": "v2_fluxo.html"}[u.path]
+                try:
+                    self.enviar(200, (AQUI / arq).read_bytes(), "text/html; charset=utf-8")
+                except FileNotFoundError:
+                    self.enviar(404, b"nao encontrado", "text/plain")
+            elif u.path.startswith("/estatico/"):
+                nome = u.path[len("/estatico/"):]
+                if nome not in ESTATICOS:  # so os nomes da lista fixa: nada de caminho vindo do pedido
+                    return self.enviar(404, b"nao encontrado", "text/plain")
+                try:
+                    self.enviar(200, (AQUI / "estatico" / nome).read_bytes(), ESTATICOS[nome])
+                except FileNotFoundError:
+                    self.enviar(404, b"nao encontrado", "text/plain")
             elif u.path == "/api/leiloes":
                 dia = parse_qs(u.query).get("dia", [None])[0]
                 try:
@@ -823,6 +867,58 @@ def main():
                     return self.enviar(400, b'{"erro":"dia (AAAA-MM-DD) invalido"}', "application/json")
                 try:
                     self.enviar(200, app.leiloes(dia), "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
+            elif u.path == "/api/resumo":
+                try:
+                    self.enviar(200, app.v2("resumo", ("v2", "resumo"),
+                                            lambda con: painel_v2.resumo_api(con, agora_servidor_ms())),
+                                "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
+            elif u.path == "/api/correlacoes":
+                q = parse_qs(u.query)
+                janela, alvo = q.get("janela", ["3600"])[0], q.get("alvo", ["WIN"])[0]
+                if janela not in ("3600", "10800", "pregao") or alvo not in ("WIN", "WDO"):
+                    return self.enviar(400, b'{"erro":"janela (3600|10800|pregao) ou alvo (WIN|WDO) invalido"}',
+                                       "application/json")
+                try:
+                    self.enviar(200, app.v2("correlacoes", ("v2", "correlacoes", janela, alvo),
+                                            lambda con: painel_v2.correlacoes_api(con, janela, alvo)),
+                                "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
+            elif u.path == "/api/fluxo":
+                qs = parse_qs(u.query)
+                dia, ativo = qs.get("dia", [None])[0], qs.get("ativo", [None])[0] or None
+                try:
+                    idx = (None if dia is None else
+                           date.fromisoformat(dia).toordinal() - date(1970, 1, 1).toordinal())
+                except ValueError:
+                    return self.enviar(400, b'{"erro":"dia (AAAA-MM-DD) invalido"}', "application/json")
+                if ativo is not None and not re.fullmatch(r"[A-Z0-9]{4,8}", ativo):
+                    return self.enviar(400, b'{"erro":"ativo invalido (ex.: WINZ26, PETR4)"}', "application/json")
+                try:
+                    self.enviar(200, app.v2("fluxo", ("v2", "fluxo", idx, ativo),
+                                            lambda con: painel_v2.fluxo_api(con, idx, ativo)),
+                                "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
+            elif u.path == "/api/fechamento":
+                dia = parse_qs(u.query).get("dia", [None])[0]
+                try:
+                    idx = (None if dia is None else
+                           date.fromisoformat(dia).toordinal() - date(1970, 1, 1).toordinal())
+                except ValueError:
+                    return self.enviar(400, b'{"erro":"dia (AAAA-MM-DD) invalido"}', "application/json")
+                try:
+                    self.enviar(200, app.v2("fechamento", ("v2", "fechamento", idx),
+                                            lambda con: painel_v2.fechamento_api(con, idx)),
+                                "application/json; charset=utf-8")
                 except Exception as e:
                     self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
                                 "application/json")
