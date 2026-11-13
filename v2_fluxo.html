@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fluxo · Painel v2</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css">
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+<link rel="stylesheet" href="/estatico/comum.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>Fluxo</h1>
+    <span class="sub" id="atualizado">carregando…</span>
+  </header>
+  <div class="erro" id="erro" role="status" aria-live="polite"></div>
+
+  <div class="filtros" role="toolbar" aria-label="Filtros">
+    <label class="chk">Dia <input type="date" id="dia" aria-label="Dia do fluxo"></label>
+    <div class="seg"><button type="button" id="dia-ultimo">Último</button></div>
+    <span class="nota" style="margin:0">vazio = último pregão com dados</span>
+  </div>
+
+  <h2>Estrangeiro no dia</h2>
+  <div class="tiles compactas" id="tiles-hoje"></div>
+  <div class="card" style="margin-top:10px">
+    <div class="card-top">
+      <h3>Estimativa por ação</h3>
+      <span class="unid" id="hoje-sub" style="margin:0"></span>
+    </div>
+    <div class="tab-wrap" id="hoje-tab"><div class="vazio">carregando…</div></div>
+  </div>
+
+  <h2>Placar do estrangeiro</h2>
+  <div class="card">
+    <div class="card-top">
+      <h3>Oficial contra estimativas</h3>
+      <span class="unid" id="placar-sub" style="margin:0"></span>
+    </div>
+    <div class="tab-wrap" id="placar-tab"><div class="vazio">carregando…</div></div>
+    <p class="nota" id="placar-nota"></p>
+  </div>
+  <div class="grade" style="margin-top:10px">
+    <div class="card">
+      <h3>Desempenho das estimativas</h3>
+      <div class="unid">sinal, postos, erro e viés contra o oficial</div>
+      <div class="tab-wrap" id="desempenho-tab"><div class="vazio">carregando…</div></div>
+      <p class="nota" id="desempenho-nota"></p>
+    </div>
+    <div class="card">
+      <h3>Oficial × estimativa</h3>
+      <div class="unid">eixo x = oficial; eixo y = estimativa; cada ponto é um pregão (R$ mi)</div>
+      <div class="graf" id="g-disp"></div>
+    </div>
+  </div>
+
+  <h2>Mapa grupo × ativo</h2>
+  <div class="card">
+    <div class="unid">saldo do grupo no ativo, em R$ mi; cor pelo sinal, intensidade dentro da coluna</div>
+    <div class="tab-wrap" id="mapa"><div class="vazio">carregando…</div></div>
+    <p class="nota">Grupo é uma hipótese sobre quem opera por cada corretora. O saldo acompanha o preço; não o antecipa.</p>
+  </div>
+
+  <h2>Quem acompanha o preço</h2>
+  <div class="filtros">
+    <div class="ativos" id="ativos" role="group" aria-label="Ativo"></div>
+  </div>
+  <div class="card">
+    <div class="card-top">
+      <h3 id="acompanha-titulo">Por grupo</h3>
+      <span class="unid" id="acompanha-sub" style="margin:0"></span>
+    </div>
+    <div class="tab-wrap" id="acompanha"><div class="vazio">carregando…</div></div>
+    <p class="nota">Correlação de 5 min entre a variação do saldo do grupo e o retorno do ativo; nível é o saldo acumulado contra o preço. Saldo final em contratos.</p>
+  </div>
+
+  <h2>Cesta × índice</h2>
+  <div class="tiles compactas" id="tiles-cesta"></div>
+  <div class="card" style="margin-top:10px">
+    <h3>Cesta acumulada × IND desde 10:00</h3>
+    <div class="unid">R$ mi no eixo esquerdo; variação % do IND$ no eixo direito</div>
+    <div class="graf" id="g-cesta"></div>
+    <p class="nota" id="cesta-nota"></p>
+  </div>
+
+  <p class="nota">O oficial do estrangeiro é publicado pela B3 em D+2 úteis; as estimativas e a cesta estão em R$ mi.</p>
+  <p class="nota">Leitura dos dados, não recomendação.</p>
+</main>
+
+<script src="/estatico/comum.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = s => document.querySelector(s);
+  let dia = "";
+  let ativo = "";
+
+  V2.nav("/v2/fluxo");
+
+  const mi = v => v == null ? "–" : V2.sinal(v, 0);
+  const pct = v => v == null ? "–" : `${V2.fmt(v * 100, 2)}%`;
+  const plural = (n, um, varios) => `${V2.fmt(n, 0)} ${Number(n) === 1 ? um : varios}`;
+  const tile = (rot, val, det) =>
+    `<div class="card tile"><div class="rot">${rot}</div><div class="val">${val}</div><div class="det">${det}</div></div>`;
+
+  function publicacao(l) {
+    if (l.oficial != null) {
+      return l.data_pub ? `publicado ${V2.dataBRCurta(l.data_pub)}` : "publicado";
+    }
+    return l.oficial_previsto ? `sai em ${V2.dataBRCurta(l.oficial_previsto)}` : "aguardando oficial";
+  }
+
+  function renderHoje(d) {
+    const h = d.hoje || {};
+    const ativos = h.por_ativo || [];
+    $("#hoje-sub").textContent = d.data ? V2.dataBR(d.data) : "";
+    $("#tiles-hoje").innerHTML = [
+      tile("Tryd parcial", mi(h.tryd_mi), "soma do fin_liq por ação"),
+      tile("Cesta parcial", mi(h.cesta && h.cesta.mi), "agressão de 10:00 a 16:55"),
+      tile("Ações com saldo", V2.fmt(ativos.length, 0), "no dia selecionado"),
+    ].join("");
+    $("#hoje-tab").innerHTML = ativos.length
+      ? `<table class="mini"><thead><tr><th>Ativo</th><th>Saldo (R$ mi)</th></tr></thead><tbody>` +
+        ativos.map(a => `<tr><td>${V2.esc(a.ativo)}</td>` +
+          `<td class="${V2.classeSinal(a.fin_liq_mi)}">${mi(a.fin_liq_mi)}</td></tr>`).join("") +
+        "</tbody></table>"
+      : '<div class="vazio">sem estimativa por ação neste dia</div>';
+  }
+
+  function renderPlacar(d) {
+    const p = d.placar || {};
+    const linhas = p.linhas || [];
+    $("#placar-sub").textContent = linhas.length ? `${linhas.length} pregões · R$ mi` : "";
+    if (!linhas.length) {
+      $("#placar-tab").innerHTML = '<div class="vazio">sem placar disponível</div>';
+      $("#placar-nota").textContent = "";
+      $("#desempenho-tab").innerHTML = '<div class="vazio">sem desempenho disponível</div>';
+      $("#desempenho-nota").textContent = "";
+      V2.grafico("g-disp", [], []);
+      return;
+    }
+    $("#placar-tab").innerHTML =
+      `<table class="mini"><thead><tr><th>Data</th><th>Oficial</th><th>Publicação</th>` +
+      `<th>Tryd</th><th>Cesta</th><th>Captura</th><th>Ações</th></tr></thead><tbody>` +
+      linhas.map(l => `<tr>
+        <td>${V2.dataBR(l.data)}</td>
+        <td class="${l.oficial == null ? "" : V2.classeSinal(l.oficial)}">${l.oficial == null ? "–" : mi(l.oficial)}</td>
+        <td>${V2.esc(publicacao(l))}</td>
+        <td class="${V2.classeSinal(l.tryd)}">${mi(l.tryd)}</td>
+        <td class="${V2.classeSinal(l.cesta)}">${mi(l.cesta)}</td>
+        <td>${pct(l.cesta_captura)}</td>
+        <td>${l.n_ativos == null ? "–" : V2.fmt(l.n_ativos, 0)}</td>
+      </tr>`).join("") + "</tbody></table>";
+    $("#placar-nota").textContent =
+      "Oficial e estimativas em R$ mi. Captura é o volume capturado pelo coletor dividido pelo volume real das barras de 1 min.";
+
+    const res = p.resumo || {};
+    const modelos = [["Tryd", res.tryd], ["Cesta", res.cesta]].filter(x => x[1]);
+    if (modelos.length) {
+      $("#desempenho-tab").innerHTML =
+        `<table class="mini"><thead><tr><th>Estimativa</th><th>Sinal certo</th><th>Postos</th>` +
+        `<th>Erro médio</th><th>Viés</th></tr></thead><tbody>` +
+        modelos.map(([nome, x]) => `<tr>
+          <td>${nome}</td>
+          <td>${x.n ? `${V2.fmt(x.sinal_certo, 0)} de ${V2.fmt(x.n, 0)}` : "–"}</td>
+          <td>${V2.fmt(x.postos, 2)}</td>
+          <td>${V2.fmt(x.erro_abs_medio, 0)}</td>
+          <td class="${V2.classeSinal(x.vies)}">${mi(x.vies)}</td>
+        </tr>`).join("") + "</tbody></table>";
+    } else {
+      $("#desempenho-tab").innerHTML = '<div class="vazio">sem desempenho disponível</div>';
+    }
+    const partes = [];
+    if (res.tryd && res.tryd.n) {
+      partes.push(`Com ${plural(res.tryd.n, "pregão", "pregões")} a amostra é pequena. ` +
+        "Leia o viés antes de ler o tamanho de uma estimativa.");
+    } else {
+      partes.push("Leia o viés antes de ler o tamanho de uma estimativa.");
+    }
+    if (res.dia_anterior && res.dia_anterior.n) {
+      partes.push(`Regra do dia anterior: ${V2.fmt(res.dia_anterior.sinal_certo, 0)} de ` +
+        `${V2.fmt(res.dia_anterior.n, 0)} sinais certos.`);
+    }
+    if (res.cesta && res.cesta.captura_min != null) {
+      partes.push(`Captura mínima exigida para a cesta: ${pct(res.cesta.captura_min)}.`);
+    }
+    $("#desempenho-nota").textContent = partes.join(" ");
+
+    const pontos = linhas.filter(l => l.oficial != null && (l.tryd != null || l.cesta != null))
+      .map(l => ({ oficial: Number(l.oficial), tryd: l.tryd, cesta: l.cesta }))
+      .sort((a, b) => a.oficial - b.oficial);
+    V2.grafico("g-disp", pontos.map(p => p.oficial), [
+      { nome: "Tryd", v: pontos.map(p => p.tryd) },
+      { nome: "Cesta", v: pontos.map(p => p.cesta) },
+    ], {
+      tempo: false, soPontos: true, pontos: true, dec: 0, decX: 0, decEixo: 0,
+      fmtY: v => V2.sinal(v, 0), altura: 240,
+    });
+  }
+
+  function renderMapa(d) {
+    const m = d.mapa;
+    if (!m || !m.ativos || !m.ativos.length) {
+      $("#mapa").innerHTML = '<div class="vazio">sem mapa para este dia</div>';
+      return;
+    }
+    const ativos = m.ativos;
+    const grupos = m.grupos || [];
+    const maximos = ativos.map(a => Math.max(0, ...grupos.map(g => {
+      const v = m.valores && m.valores[g] ? m.valores[g][a] : null;
+      return v == null ? 0 : Math.abs(Number(v));
+    })));
+    const thead = `<tr><th></th>${ativos.map((a, j) =>
+      `<th scope="col" title="${V2.esc(a)}">${V2.esc(V2.ativoCurto(a))}</th>`).join("")}</tr>`;
+    const rows = grupos.map(g => {
+      const vals = (m.valores && m.valores[g]) || {};
+      const cels = ativos.map((a, j) => {
+        const v = vals[a];
+        if (v == null) return '<td class="vazia"></td>';
+        const forca = 0.08 + 0.52 * (maximos[j] ? Math.min(1, Math.abs(Number(v)) / maximos[j]) : 0);
+        return `<td class="${V2.classeSinal(v)}" style="--forca:${forca.toFixed(2)}">${mi(v)}</td>`;
+      }).join("");
+      return `<tr><th scope="row">${V2.esc(g)}</th>${cels}</tr>`;
+    }).join("");
+    $("#mapa").innerHTML = `<table class="mapa mini"><thead>${thead}</thead><tbody>${rows}</tbody></table>`;
+  }
+
+  function renderAtivos(d) {
+    const el = $("#ativos");
+    const ativos = d.ativos || [];
+    if (!ativos.length) {
+      el.innerHTML = '<span class="nota" style="margin:0">sem ativos neste dia</span>';
+      el.dataset.chave = "";
+      return;
+    }
+    const chave = JSON.stringify([ativos, d.ativo]);
+    if (el.dataset.chave === chave) return;
+    el.innerHTML = ativos.map(a =>
+      `<button type="button" data-a="${V2.esc(a)}" title="${V2.esc(a)}" ` +
+      `aria-pressed="${a === d.ativo}">${V2.esc(V2.ativoCurto(a))}</button>`).join("");
+    el.dataset.chave = chave;
+  }
+
+  function renderAcompanha(d) {
+    renderAtivos(d);
+    const lista = d.acompanha || [];
+    $("#acompanha-titulo").textContent = d.ativo ? `Por grupo · ${d.ativo}` : "Por grupo";
+    $("#acompanha-sub").textContent = d.ativo ? "saldo final em contratos" : "";
+    if (!lista.length) {
+      $("#acompanha").innerHTML = '<div class="vazio">sem dados para este ativo</div>';
+      return;
+    }
+    const clsRotulo = r => r === "a favor do preço" ? "pos" : r === "contra o preço" ? "neg" : "";
+    $("#acompanha").innerHTML =
+      `<table><thead><tr><th>Grupo</th><th>Corr. 5 min</th><th>Nível</th><th>Leitura</th><th>Saldo final</th></tr></thead><tbody>` +
+      lista.map(r => `<tr>
+        <td>${V2.esc(r.grupo)}</td>
+        <td><span class="cel-hoje"><span class="${V2.classeSinal(r.corr_5m)}">${V2.corr(r.corr_5m)}</span>${V2.barraCorr(r.corr_5m)}</span></td>
+        <td class="${V2.classeSinal(r.nivel)}">${V2.corr(r.nivel)}</td>
+        <td class="${clsRotulo(r.rotulo)}">${V2.esc(r.rotulo || "–")}</td>
+        <td class="${V2.classeSinal(r.saldo_final)}">${V2.sinal(r.saldo_final, 0)}</td>
+      </tr>`).join("") + "</tbody></table>";
+  }
+
+  function renderCesta(d) {
+    const ci = d.cesta_indice || {};
+    $("#tiles-cesta").innerHTML = [
+      tile("Correlação 5 min", V2.corr(ci.corr_5m), "cesta contra o retorno do IND$"),
+      tile("Normal medido", "+0,40", "referência da especificação"),
+      tile("Baldes de 5 min", V2.fmt(ci.n, 0), "mínimo 24"),
+    ].join("");
+    V2.grafico("g-cesta", ci.t || [], [
+      { nome: "Cesta (R$ mi)", v: ci.cesta_mi || [], fmtY: v => `${V2.sinal(v, 0)} mi` },
+      { nome: "IND (%)", v: ci.ind_pct || [], slot: 1, fmtY: v => `${V2.sinal(v, 2)}%` },
+    ], {
+      eixo2: 1, dec: 2, decEixo: 0, decEixo2: 2, zero: true, altura: 240,
+    });
+    $("#cesta-nota").textContent = ci.corr_5m == null
+      ? "Sem correlação de 5 min para este dia (amostra menor que 24 baldes)."
+      : `Correlação de 5 min: ${V2.corr(ci.corr_5m)} em ${V2.fmt(ci.n, 0)} baldes. ` +
+        "O normal medido é +0,40; a cesta acompanha o índice e não o antecipa.";
+  }
+
+  function render(d) {
+    const fim = d.hoje && d.hoje.cesta && d.hoje.cesta.t && d.hoje.cesta.t.length
+      ? d.hoje.cesta.t[d.hoje.cesta.t.length - 1] : null;
+    $("#atualizado").textContent =
+      `${d.data ? V2.dataBR(d.data) : "sem dados"}${fim ? ` · cesta até ${V2.hora(fim)}` : ""} · atualiza a cada 30 s`;
+    renderHoje(d);
+    renderPlacar(d);
+    renderMapa(d);
+    renderAcompanha(d);
+    renderCesta(d);
+  }
+
+  async function carregar() {
+    const q = new URLSearchParams();
+    if (dia) q.set("dia", dia);
+    if (ativo) q.set("ativo", ativo);
+    const r = await fetch(`/api/fluxo${q.toString() ? `?${q}` : ""}`, { cache: "no-store" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || `HTTP ${r.status}`);
+    if (!dia && d.data) $("#dia").value = d.data;
+    render(d);
+  }
+
+  $("#dia").addEventListener("change", () => {
+    dia = $("#dia").value || "";
+    ativo = "";
+    carregar().catch(e => { $("#erro").textContent = `Erro ao atualizar: ${e.message}`; });
+  });
+
+  $("#dia-ultimo").addEventListener("click", () => {
+    dia = "";
+    ativo = "";
+    $("#dia").value = "";
+    carregar().catch(e => { $("#erro").textContent = `Erro ao atualizar: ${e.message}`; });
+  });
+
+  $("#ativos").addEventListener("click", e => {
+    const b = e.target.closest("button[data-a]");
+    if (!b) return;
+    ativo = b.dataset.a;
+    carregar().catch(err => { $("#erro").textContent = `Erro ao atualizar: ${err.message}`; });
+  });
+
+  V2.laco(carregar, 30000);
+})();
+</script>
+</body>
+</html>

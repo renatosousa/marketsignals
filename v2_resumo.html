@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resumo · Painel v2</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css">
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+<link rel="stylesheet" href="/estatico/comum.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>Resumo</h1>
+    <span class="sub" id="atualizado">carregando…</span>
+  </header>
+  <div class="erro" id="erro" role="status" aria-live="polite"></div>
+
+  <h2>Coleta</h2>
+  <button type="button" class="faixa-coleta" id="faixa-coleta" aria-expanded="false" aria-controls="coleta-lista">
+    <span id="coleta-resumo">carregando…</span>
+    <span class="faixa-seta" id="coleta-seta">lista ▾</span>
+  </button>
+  <div class="coleta-problemas" id="coleta-problemas"></div>
+  <div id="coleta-lista" hidden></div>
+
+  <h2>Alertas</h2>
+  <div class="card" id="alertas"><div class="vazio">carregando…</div></div>
+
+  <h2>Regime do WIN</h2>
+  <div class="tiles compactas" id="tiles-regime"></div>
+
+  <h2>O que explica o WIN</h2>
+  <div class="card" id="decomposicao"><div class="vazio">carregando…</div></div>
+
+  <h2>Pares principais</h2>
+  <div class="card"><div class="tab-wrap" id="principais"><div class="vazio">carregando…</div></div></div>
+
+  <h2>Vol das opções</h2>
+  <div class="tiles compactas" id="tiles-vol"></div>
+  <div class="card" style="margin-top:10px">
+    <h3>Implícita × realizada × prevista</h3>
+    <div class="unid">% a.a.; último valor de cada um dos últimos 30 pregões</div>
+    <div class="graf" id="g-vol"></div>
+  </div>
+
+  <h2>Fechamento do dia</h2>
+  <div class="card">
+    <div class="card-top">
+      <h3 id="fech-titulo">Fechamento do dia</h3>
+      <label class="chk">Dia <input type="date" id="fech-dia" aria-label="Dia do fechamento"></label>
+    </div>
+    <div class="unid" id="fech-sub"></div>
+    <div id="fechamento"><div class="vazio">carregando…</div></div>
+  </div>
+
+  <p class="nota">Leitura dos dados, não recomendação.</p>
+</main>
+
+<script src="/estatico/comum.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = s => document.querySelector(s);
+  let coletaAberta = false;
+  let diaFech = "";
+
+  V2.nav("/v2");
+
+  const ESTADO = {
+    "ok": ["Em dia", "ok"],
+    "atrasado": ["Atrasado", "atrasado"],
+    "parado": ["Parado", "parado"],
+    "fora do horario": ["Fora do horário", "ok"],
+    "sem dados": ["Sem dados", "parado"],
+  };
+  const estadoTxt = e => (ESTADO[e] || [e || "–", ""])[0];
+  const estadoCls = e => (ESTADO[e] || ["", ""])[1];
+
+  function renderColeta(c) {
+    if (!c) return;
+    const pior = ["parado", "atrasado", "ok"].includes(c.pior) ? c.pior : "ok";
+    const faixa = $("#faixa-coleta");
+    faixa.className = `faixa-coleta ${pior}`;
+    faixa.setAttribute("aria-expanded", String(coletaAberta));
+    $("#coleta-seta").textContent = `lista ${coletaAberta ? "▴" : "▾"}`;
+    $("#coleta-resumo").innerHTML =
+      `<span class="faixa-num">${c.em_dia} de ${c.total} fontes em dia</span>` +
+      `<br><span class="nota" style="margin:0">${pior === "ok" ? "coleta em ordem" : pior === "atrasado" ? "há fonte atrasada" : "há fonte parada"}</span>`;
+
+    const ruins = (c.fontes || []).filter(f => f.estado !== "ok" && f.estado !== "fora do horario");
+    $("#coleta-problemas").innerHTML = ruins.length
+      ? `<ul class="lista-simples">${ruins.map(f =>
+          `<li><span class="ponto ${estadoCls(f.estado)}"></span><b>${V2.esc(f.nome)}</b> — ${V2.esc(estadoTxt(f.estado))}` +
+          `${f.detalhe ? ` <span class="nota" style="margin:0">(${V2.esc(f.detalhe)})</span>` : ""}</li>`).join("")}</ul>`
+      : "";
+
+    $("#coleta-lista").hidden = !coletaAberta;
+    $("#coleta-lista").innerHTML =
+      `<div class="tab-wrap" style="margin-top:8px"><table><thead><tr><th>Fonte</th><th>Último dado</th><th>Estado</th></tr></thead><tbody>` +
+      (c.fontes || []).map(f =>
+        `<tr><td>${V2.esc(f.nome)}</td><td>${V2.esc(f.ultimo || "–")}</td>` +
+        `<td>${V2.esc(estadoTxt(f.estado))}${f.detalhe ? `<br><span class="nota" style="margin:0">${V2.esc(f.detalhe)}</span>` : ""}</td></tr>`).join("") +
+      "</tbody></table></div>";
+  }
+
+  function renderAlertas(lista) {
+    const nivel = {
+      critico: ["critico", "◆", "Crítico"],
+      atencao: ["atencao", "▲", "Atenção"],
+      info: ["info", "●", "Info"],
+    };
+    const itens = (lista && lista.length) ? lista : [{ nivel: "info", texto: "Sem alertas" }];
+    $("#alertas").innerHTML = `<ul class="lista-alertas">${itens.map(a => {
+      const [cls, ico, rot] = nivel[a.nivel] || nivel.info;
+      return `<li class="alerta ${cls}"><i aria-hidden="true">${ico}</i><b>${rot}</b><span>${V2.esc(a.texto)}</span></li>`;
+    }).join("")}</ul>`;
+  }
+
+  function renderRegime(r) {
+    const a = r && r.atual;
+    if (!a) {
+      $("#tiles-regime").innerHTML = '<div class="vazio">sem dados de regime hoje</div>';
+      return;
+    }
+    const tile = (rot, val, det) =>
+      `<div class="card tile"><div class="rot">${rot}</div><div class="val">${val}</div><div class="det">${det}</div></div>`;
+    $("#tiles-regime").innerHTML = [
+      tile("Regime", a.rotulo || "–", "leitura do modelo para agora"),
+      tile("Vol relativa", `${V2.fmt(a.rv_rel, 2)}×`, "última hora contra o normal do horário"),
+      tile("Próxima hora", a.faixa_1h_pts == null ? "–" : `±${V2.fmt(a.faixa_1h_pts, 0)} pts`,
+        "faixa típica (1 desvio)"),
+    ].join("");
+  }
+
+  function renderPrincipais(lista) {
+    if (!lista || !lista.length) {
+      $("#principais").innerHTML = '<div class="vazio">sem pares na janela</div>';
+      return;
+    }
+    const rows = lista.map(p => {
+      const destaque = p.z != null && Math.abs(p.z) >= 2;
+      const ref = p.ref || {};
+      return `<tr${destaque ? ' class="destaque"' : ""}>
+        <td>${V2.esc(V2.parNome(p.y, p.x))}</td>
+        <td class="${V2.classeSinal(p.corr)}">${V2.corr(p.corr)}</td>
+        <td><span class="cel-normal"><span class="num">${V2.corr(ref.media)}</span>${V2.regua(ref.p10, ref.p90, p.corr)}</span></td>
+        <td>${V2.sinal(p.z, 2)}</td>
+      </tr>`;
+    }).join("");
+    $("#principais").innerHTML =
+      `<table><thead><tr><th>Par</th><th>Hoje</th><th>Normal p10–p90</th><th>z</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  function renderVol(v) {
+    if (!v) {
+      $("#tiles-vol").innerHTML = '<div class="vazio">sem dados de volatilidade</div>';
+      V2.grafico("g-vol", [], []);
+      return;
+    }
+    const tile = (rot, val, det) =>
+      `<div class="card tile"><div class="rot">${rot}</div><div class="val">${val}</div><div class="det">${det}</div></div>`;
+    $("#tiles-vol").innerHTML = [
+      tile("Implícita", v.implicita == null ? "–" : `${V2.fmt(v.implicita, 2)}%`,
+        v.vencimento ? `venc. ${V2.dataBRCurta(v.vencimento)}` : "sem vencimento"),
+      tile("Realizada", v.realizada == null ? "–" : `${V2.fmt(v.realizada, 2)}%`, "anualizada no dia"),
+      tile("Diferença", v.dif == null ? "–" : `${V2.sinal(v.dif, 2)} p.p.`, "implícita − realizada"),
+    ].join("");
+
+    const s = v.serie || {};
+    const datas = s.datas || [];
+    const x = datas.map((_, i) => i);
+    const xCat = datas.map(d => V2.dataBRCurta(d));
+    V2.grafico("g-vol", x, [
+      { nome: "Implícita", v: s.implicita || [] },
+      { nome: "Realizada", v: s.realizada || [] },
+      { nome: "Prevista", v: s.prevista || [] },
+    ], { tempo: false, xCat, xPasso: 7, dec: 2, fmtY: y => `${V2.fmt(y, 2)}%`, nomeX: "pregão", altura: 200 });
+  }
+
+  const tab = (headers, rows, classe = "mini") =>
+    `<table class="${classe}"><thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>` +
+    `<tbody>${rows.join("")}</tbody></table>`;
+  const preco = (sym, v) => v == null ? "–" : V2.fmt(v, String(sym).startsWith("WDO") ? 1 : 0);
+  const varPct = v => v == null ? "–" : `<span class="${V2.classeSinal(v)}">${V2.sinal(v, 2)}%</span>`;
+
+  function renderFech(f) {
+    const titulo = f && f.data ? `Fechamento de ${V2.dataBR(f.data)}` : "Fechamento do dia";
+    $("#fech-titulo").textContent = titulo;
+    if (!f) {
+      $("#fechamento").innerHTML = '<div class="vazio">sem dados de fechamento</div>';
+      return;
+    }
+    if (f.data) $("#fech-dia").value = f.data;
+    const v0 = (f.vol || [])[0];
+    $("#fech-sub").textContent = [
+      f.vix != null ? `VIX ${V2.fmt(f.vix, 2)}` : null,
+      f.regime && f.regime.rotulo ? f.regime.rotulo : null,
+      v0 && v0.atm_iv != null ? `vol ATM ${V2.fmt(v0.atm_iv, 2)}%` : null,
+    ].filter(Boolean).join(" · ");
+
+    const precos = [
+      ["WIN", f.win], ["WDO", f.wdo], ["IND", f.indice],
+    ].map(([n, p]) => p ? `<tr><td>${n}</td><td>${preco(n, p.abertura)}</td><td>${preco(n, p.minima)}</td>` +
+      `<td>${preco(n, p.maxima)}</td><td>${preco(n, p.ultimo)}</td><td>${varPct(p.var_pct)}</td></tr>` : "").join("");
+    const faixas = (f.win_faixas || []).map(x =>
+      `<tr><td>${V2.esc(String(x.faixa || "–").replace("-", "–"))}</td><td>${varPct(x.var_pct)}</td></tr>`).join("");
+    const dis = (f.di || []).map(x =>
+      `<tr><td>${V2.esc(V2.nome(x.simbolo))}</td><td>${x.taxa == null ? "–" : `${V2.fmt(x.taxa, 3)}%`}</td>` +
+      `<td>${x.var_bps == null ? "–" : `<span class="${V2.classeSinal(x.var_bps)}">${V2.sinal(x.var_bps, 1)} bp</span>`}</td></tr>`).join("");
+    const acoes = (f.acoes || []).map(x =>
+      `<tr><td>${V2.esc(x.symbol)}</td><td>${varPct(x.var_pct)}</td></tr>`).join("");
+
+    const pl = f.players || {};
+    const kWin = Object.keys(pl).find(k => k.startsWith("WIN"));
+    const kMdo = Object.keys(pl).find(k => k.startsWith("WDO"));
+    const grupos = {};
+    [kWin, kMdo].forEach(k => {
+      if (!k) return;
+      ["maiores", "menores"].forEach(lado => (pl[k][lado] || []).forEach(it => {
+        grupos[it.grupo] = grupos[it.grupo] || {};
+        grupos[it.grupo][k] = it.saldo;
+      }));
+    });
+    const players = Object.keys(grupos).map(g =>
+      `<tr><td>${V2.esc(g)}</td><td>${grupos[g][kWin] == null ? "–" : V2.sinal(grupos[g][kWin], 0)}</td>` +
+      `<td>${grupos[g][kMdo] == null ? "–" : V2.sinal(grupos[g][kMdo], 0)}</td></tr>`).join("");
+
+    $("#fechamento").innerHTML = `<div class="grade compacta">
+      <div class="bloco"><h4>WIN · WDO · IND</h4><div class="tab-wrap">${tab(
+        ["Ativo", "Abertura", "Mín.", "Máx.", "Último", "Dia"], [precos || '<tr><td colspan="6">–</td></tr>'])}</div></div>
+      <div class="bloco"><h4>Faixas do WIN</h4><div class="tab-wrap">${tab(
+        ["Faixa", "Variação"], [faixas || '<tr><td colspan="2">–</td></tr>'])}</div></div>
+      <div class="bloco"><h4>DI</h4><div class="tab-wrap">${tab(
+        ["Vértice", "Taxa", "Dia"], [dis || '<tr><td colspan="3">–</td></tr>'])}</div></div>
+      <div class="bloco"><h4>Ações e ETFs (ordenados)</h4><div class="tab-wrap">${tab(
+        ["Ativo", "Dia"], [acoes || '<tr><td colspan="2">–</td></tr>'])}</div></div>
+      <div class="bloco"><h4>Players · saldo final (contratos)</h4><div class="tab-wrap">${tab(
+        ["Grupo", "WIN", "WDO"], [players || '<tr><td colspan="3">–</td></tr>'])}</div></div>
+      <div class="bloco tile"><div class="rot">Estrangeiro (estimativa)</div>
+        <div class="val">${f.estrangeiro == null ? "–" : `${V2.sinal(f.estrangeiro, 0)} R$ mi`}</div>
+        <div class="det">estimador do Tryd para o dia</div></div>
+    </div>`;
+  }
+
+  async function carregar() {
+    const r = await fetch("/api/resumo", { cache: "no-store" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || `HTTP ${r.status}`);
+    $("#atualizado").textContent = d.t1
+      ? `dados até ${V2.hora(d.t1)} · atualiza a cada 10 s`
+      : "sem dados · atualiza a cada 10 s";
+    renderColeta(d.coleta);
+    renderAlertas(d.alertas);
+    renderRegime(d.regime);
+    V2.decomposicao($("#decomposicao"), d.decomposicao);
+    renderPrincipais(d.principais);
+    renderVol(d.vol);
+  }
+
+  async function carregarFechamento() {
+    const q = diaFech ? `?dia=${encodeURIComponent(diaFech)}` : "";
+    const r = await fetch(`/api/fechamento${q}`, { cache: "no-store" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || `HTTP ${r.status}`);
+    renderFech(d);
+  }
+
+  $("#faixa-coleta").addEventListener("click", () => {
+    coletaAberta = !coletaAberta;
+    $("#faixa-coleta").setAttribute("aria-expanded", String(coletaAberta));
+    $("#coleta-lista").hidden = !coletaAberta;
+    $("#coleta-seta").textContent = `lista ${coletaAberta ? "▴" : "▾"}`;
+  });
+
+  $("#fech-dia").addEventListener("change", () => {
+    diaFech = $("#fech-dia").value || "";
+    carregarFechamento().catch(e => { $("#erro").textContent = `Erro ao atualizar: ${e.message}`; });
+  });
+
+  V2.laco(carregar, 10000);
+  V2.laco(carregarFechamento, 60000);
+})();
+</script>
+</body>
+</html>

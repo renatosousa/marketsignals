@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Correlações · Painel v2</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css">
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+<link rel="stylesheet" href="/estatico/comum.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>Correlações</h1>
+    <span class="sub" id="atualizado">carregando…</span>
+  </header>
+  <div class="erro" id="erro" role="status" aria-live="polite"></div>
+
+  <div class="filtros" role="toolbar" aria-label="Filtros">
+    <div class="seg" id="janelas" aria-label="Janela">
+      <button type="button" data-j="3600">1 h</button>
+      <button type="button" data-j="10800">3 h</button>
+      <button type="button" data-j="pregao" aria-pressed="true">Pregão</button>
+    </div>
+    <div class="seg" id="alvos" aria-label="Alvo">
+      <button type="button" data-a="WIN" aria-pressed="true">WIN</button>
+      <button type="button" data-a="WDO">WDO</button>
+    </div>
+  </div>
+
+  <h2>O que explica o WIN</h2>
+  <div class="card" id="decomposicao"><div class="vazio">carregando…</div></div>
+
+  <h2>Tabela de correlações</h2>
+  <div class="card">
+    <div class="unid" id="tabela-sub"></div>
+    <div class="tab-wrap" id="tabela"><div class="vazio">carregando…</div></div>
+    <p class="nota">Faixa p10–p90 do normal de cada par; o traço escuro marca o valor de hoje. Destaque quando |z| ≥ 2 e n ≥ 120.</p>
+  </div>
+
+  <h2>Correlação móvel</h2>
+  <div class="filtros">
+    <label class="chk">Par <select id="par"></select></label>
+  </div>
+  <div class="card">
+    <div class="unid">correlação de 60 min ao longo do pregão; faixa p10–p90 do normal</div>
+    <div class="graf" id="g-movel"></div>
+    <p class="nota" id="movel-nota"></p>
+  </div>
+
+  <h2>Matriz</h2>
+  <div class="filtros">
+    <div class="seg" id="matriz-modo" aria-label="Modo da matriz">
+      <button type="button" data-m="hoje" aria-pressed="true">Hoje</button>
+      <button type="button" data-m="dif">Diferença contra o normal</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="unid" id="matriz-sub"></div>
+    <div class="tab-wrap" id="matriz"></div>
+  </div>
+
+  <p class="nota">Correlação do mesmo minuto: nenhum destes ativos antecipa o WIN (medido de 5 s a 1 min).</p>
+  <p class="nota">Leitura dos dados, não recomendação.</p>
+</main>
+
+<script src="/estatico/comum.js"></script>
+<script>
+(() => {
+  "use strict";
+  const $ = s => document.querySelector(s);
+  let janela = "pregao";
+  let alvo = "WIN";
+  let ultimo = null;
+  let modoMatriz = "hoje";
+
+  V2.nav("/v2/correlacoes");
+
+  function marcar(seletor, valor, attr) {
+    document.querySelectorAll(`${seletor} button`).forEach(b => {
+      b.setAttribute("aria-pressed", String(b.dataset[attr] === valor));
+    });
+  }
+
+  function renderTabela(d) {
+    const alvoSim = d.alvo === "WDO" ? "WDO$" : "WIN$";
+    $("#tabela-sub").textContent = `alvo ${d.alvo}; ${V2.janelaNome(d.janela)}; ${V2.fmt(d.n_minutos, 0)} minutos`;
+    const linhas = (d.tabela || []).map(l => {
+      const destaque = l.z != null && Math.abs(l.z) >= 2 && l.n >= 120;
+      const ref = l.ref || {};
+      const unidade = V2.ehTaxa(l.x) ? "pts/bp" : "pts/1%";
+      const beta = l.beta_pts == null ? "–" : `${V2.sinal(l.beta_pts, l.beta_pts != null && Math.abs(l.beta_pts) >= 10 ? 0 : 1)} ${unidade}`;
+      const motivo = l.corr == null && l.motivo
+        ? `<div class="nota" style="margin:0">${V2.esc(l.motivo)}</div>` : "";
+      return `<tr${destaque ? ' class="destaque"' : ""}>
+        <td>${V2.esc(V2.parNome(alvoSim, l.x))}${motivo}</td>
+        <td><span class="cel-hoje"><span class="${V2.classeSinal(l.corr)}">${V2.corr(l.corr)}</span>${V2.barraCorr(l.corr)}</span></td>
+        <td>${V2.corr(l.ic_lo)} a ${V2.corr(l.ic_hi)}</td>
+        <td><span class="cel-normal"><span class="num">${V2.corr(ref.media)}</span>${V2.regua(ref.p10, ref.p90, l.corr)}</span></td>
+        <td>${V2.sinal(l.z, 2)}</td>
+        <td>${beta}</td>
+        <td>${l.n == null ? "–" : V2.fmt(l.n, 0)}</td>
+      </tr>`;
+    }).join("");
+    $("#tabela").innerHTML =
+      `<table class="tabela-corr"><thead><tr><th>Ativo</th><th>Hoje</th><th>IC 95%</th>` +
+      `<th>Normal p10–p90</th><th>z</th><th>Beta<br><span class="nota" style="margin:0">pts/1% · DI: pts/bp</span></th><th>n</th></tr></thead>` +
+      `<tbody>${linhas || '<tr><td colspan="7">sem pares na janela</td></tr>'}</tbody></table>`;
+  }
+
+  function opcoesMovel(d) {
+    const sel = $("#par");
+    const opts = (d.movel || []).map(m => {
+      const [y, x] = String(m.par).split("|");
+      return { v: m.par, t: V2.parNome(y, x) };
+    });
+    const chave = JSON.stringify(opts);
+    if (sel.dataset.opcoes !== chave) {
+      sel.innerHTML = opts.map(o => `<option value="${V2.esc(o.v)}">${V2.esc(o.t)}</option>`).join("");
+      sel.dataset.opcoes = chave;
+    }
+    if (!opts.some(o => o.v === sel.value)) sel.value = opts.length ? opts[0].v : "";
+  }
+
+  function renderMovel(d) {
+    const m = ((d.movel || []).find(x => x.par === $("#par").value)) || (d.movel || [])[0];
+    if (!m) {
+      V2.grafico("g-movel", [], []);
+      $("#movel-nota").textContent = "sem correlação móvel na janela";
+      return;
+    }
+    const [y, x] = String(m.par).split("|");
+    const faixa = m.p10 != null && m.p90 != null ? { de: m.p10, ate: m.p90 } : null;
+    V2.grafico("g-movel", m.t || [], [{ nome: V2.parNome(y, x), v: m.corr || [] }],
+      { dec: 2, zero: true, faixa, altura: 220 });
+    $("#movel-nota").textContent = faixa
+      ? `normal: ${V2.corr(m.p10)} a ${V2.corr(m.p90)} (p10–p90)`
+      : "normal indisponível para este par";
+  }
+
+  function renderMatriz(d) {
+    const m = d.matriz;
+    if (!m || !m.simbolos || !m.simbolos.length) {
+      $("#matriz").innerHTML = '<div class="vazio">sem matriz na janela</div>';
+      $("#matriz-sub").textContent = "";
+      return;
+    }
+    const vals = modoMatriz === "dif" ? m.dif : m.hoje;
+    const n = m.simbolos.length;
+    const maxCol = [];
+    for (let j = 0; j < n; j++) {
+      let mx = 0;
+      for (let i = 0; i < n; i++) {
+        const v = vals && vals[i] ? vals[i][j] : null;
+        if (i !== j && v != null) mx = Math.max(mx, Math.abs(v));
+      }
+      maxCol[j] = mx || 1;
+    }
+    const rows = m.simbolos.map((_, i) => {
+      const cels = m.simbolos.map((__, j) => {
+        if (i === j) return '<td class="vazia"></td>';
+        const v = vals && vals[i] ? vals[i][j] : null;
+        if (v == null) return '<td class="vazia"></td>';
+        const forca = 0.08 + 0.42 * Math.min(1, Math.abs(v) / maxCol[j]);
+        return `<td class="${V2.classeSinal(v)}" style="--forca:${forca.toFixed(2)}">${V2.corr(v)}</td>`;
+      }).join("");
+      return `<tr><th scope="row">${V2.esc(m.nomes[i] || m.simbolos[i])}</th>${cels}</tr>`;
+    }).join("");
+    const thead = `<tr><th></th>${m.simbolos.map((s, i) =>
+      `<th scope="col">${V2.esc((m.nomes && m.nomes[i]) || s)}</th>`).join("")}</tr>`;
+    $("#matriz").innerHTML = `<table class="mapa matriz"><thead>${thead}</thead><tbody>${rows}</tbody></table>`;
+    $("#matriz-sub").textContent = modoMatriz === "dif"
+      ? "diferença contra o normal (hoje − média); célula vazia = sem referência"
+      : "correlação de hoje; célula vazia = amostra curta";
+  }
+
+  function render(d) {
+    ultimo = d;
+    const t1 = d.t1 == null ? null : d.t1;
+    $("#atualizado").textContent = `${t1 == null ? "sem dados" : `dados até ${V2.hora(t1)}`} · ${V2.janelaNome(d.janela)} · atualiza a cada 30 s`;
+    V2.decomposicao($("#decomposicao"), d.decomposicao);
+    renderTabela(d);
+    opcoesMovel(d);
+    renderMovel(d);
+    renderMatriz(d);
+  }
+
+  async function carregar() {
+    const r = await fetch(`/api/correlacoes?janela=${encodeURIComponent(janela)}&alvo=${encodeURIComponent(alvo)}`, { cache: "no-store" });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || `HTTP ${r.status}`);
+    render(d);
+  }
+
+  document.querySelectorAll("#janelas button").forEach(b => {
+    b.addEventListener("click", () => {
+      janela = b.dataset.j;
+      marcar("#janelas", janela, "j");
+      carregar().catch(e => { $("#erro").textContent = `Erro ao atualizar: ${e.message}`; });
+    });
+  });
+  document.querySelectorAll("#alvos button").forEach(b => {
+    b.addEventListener("click", () => {
+      alvo = b.dataset.a;
+      marcar("#alvos", alvo, "a");
+      carregar().catch(e => { $("#erro").textContent = `Erro ao atualizar: ${e.message}`; });
+    });
+  });
+  document.querySelectorAll("#matriz-modo button").forEach(b => {
+    b.addEventListener("click", () => {
+      modoMatriz = b.dataset.m;
+      marcar("#matriz-modo", modoMatriz, "m");
+      if (ultimo) renderMatriz(ultimo);
+    });
+  });
+  $("#par").addEventListener("change", () => { if (ultimo) renderMovel(ultimo); });
+
+  V2.laco(carregar, 30000);
+})();
+</script>
+</body>
+</html>
