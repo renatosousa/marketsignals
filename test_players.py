@@ -17,7 +17,7 @@ def banco(saldo, fita=(), ativo="WINZ26"):
     db.executescript(ct.SCHEMA)
     db.executemany("INSERT INTO tryd_saldo (ts_ms, ativo, linha, brk, qtd, sagr, qtdc, qtdv) VALUES (?,?,?,?,?,?,?,?)",
                    [(ts, ativo, i, b, q, s, c, v) for i, (ts, b, q, s, c, v) in enumerate(saldo)])
-    db.executemany("INSERT INTO tryd_fita VALUES (?,?,?,?,?,?,?,?,?,?,?)", fita)
+    db.executemany("INSERT INTO tryd_fita (dia, ativo, num, ts_ms, hora, qtd, preco, comprador, vendedor, agressor, var) VALUES (?,?,?,?,?,?,?,?,?,?,?)", fita)
     return db
 
 
@@ -176,7 +176,7 @@ class TestRlp(unittest.TestCase):
         r1 = players.montar(db, DIA)
         r2 = players.montar(db, DIA)
         self.assertEqual(r1["rlp"], r2["rlp"])
-        db.executemany("INSERT INTO tryd_fita VALUES (?,?,?,?,?,?,?,?,?,?,?)", fita[60:])
+        db.executemany("INSERT INTO tryd_fita (dia, ativo, num, ts_ms, hora, qtd, preco, comprador, vendedor, agressor, var) VALUES (?,?,?,?,?,?,?,?,?,?,?)", fita[60:])
         r3 = players.montar(db, DIA)
         players._CACHE_FITA.clear()
         self.assertEqual(r3["rlp"], players.montar(db, DIA)["rlp"])  # igual a agregar tudo de uma vez

@@ -4,15 +4,17 @@ Duas janelas do Tryd, por contrato (a janela precisa estar aberta e com a export
   <ativo>_SAL   "Saldo por corretora": acumulado do dia por corretora, completo. Foto a cada --saldo s em tryd_saldo.
                 qtd = qtdc - qtdv e vol = volc - volv (liquidos, contratos e R$); sagr = agrc - agrv (saldo de agressao);
                 spas = qtd - sagr; premed e plb em R$ por contrato. O fluxo de um intervalo sai da diferenca entre fotos.
-  <ativo>_NEGS  "Negocios": a janela guarda os N ultimos (31 ate 3/11/2026; agora 100) e o Tryd a redesenha ~4x/s, entao nos picos (WIN > 120
+  <ativo>_NEGS  "Negocios": a janela guarda os N ultimos (31 ate 3/11/2026, 100 ate 13/11, 200 desde 16/11) e o Tryd a redesenha ~4x/s, entao nos picos (WIN > 120
                 negocios/s) parte da fita se perde: 73% capturado em trecho normal e 45% num pico (30/10/2026). Cada
                 negocio novo entra uma vez em tryd_fita (chave: dia, ativo, num); buracos no `num` (passo de 10 por
                 negocio) medem o que faltou. A fita da corretora de cada ponta, o agressor (Comprador/Vendedor/RLP...) e a
-                hora do negocio; o saldo acima e a fonte exata dos totais.
+                hora do negocio; desde 16/11/2026 (Tryd atualizado) tambem o "Agente Agressor" (AGAG), gravado cru em
+                agente_agr; o saldo acima e a fonte exata dos totais.
 
 Tabelas (ts_ms = relogio de Brasilia como epoch "UTC", convencao do banco; dia = ts_ms // 86400000):
   tryd_saldo  ts_ms, ativo, linha, brk, vol, qtd, premed, agrc, agrv, sagr, spas, plb, qtdc, qtdv, volc, volv
-  tryd_fita   dia, ativo, num, ts_ms (captura), hora (do negocio, hh:mm:ss.mmm), qtd, preco, comprador, vendedor, agressor, var
+  tryd_fita   dia, ativo, num, ts_ms (captura), hora (do negocio, hh:mm:ss.mmm), qtd, preco, comprador, vendedor, agressor, var,
+              agente_agr (NULL antes de 16/11/2026)
 
 Acoes (--acoes): so o saldo por corretora, a cada --saldo-acoes s (padrao 60): a B3 publica o fluxo por tipo de investidor
 (estrangeiro, institucional, pessoa fisica...) so para acoes, com 2 pregoes de atraso, e e com elas que se valida o mapa
@@ -32,8 +34,8 @@ from relogio import local_br_ms
 ATIVOS = ("WINZ26", "WDOZ26")  # saldo + fita (a janela de negocios, se aberta); rolagem: trocar quando o contrato vencer
 ACOES = ("PETR4", "VALE3", "ITUB4", "BBDC4", "BOVA11")  # so saldo: valida corretora -> tipo de investidor (D+2 da B3, acoes)
 SALDO_CAMPOS = ["BRK", "VOL", "QTD", "PREMED", "AGRC", "AGRV", "SAGR", "SPAS", "PLB", "QTDC", "QTDV", "VOLC", "VOLV"]
-FITA_CAMPOS = ["DAT", "QUL", "PRE", "ACP", "AVD", "AGR", "VAR"]  # + NUM, lido a parte
-LINHAS_SALDO, LINHAS_FITA = 500, 100  # a janela de negocios guarda 100 linhas (era 31 ate 3/11/2026)
+FITA_CAMPOS = ["DAT", "QUL", "PRE", "ACP", "AVD", "AGR", "VAR", "AGAG"]  # + NUM, lido a parte; AGAG desde 16/11/2026
+LINHAS_SALDO, LINHAS_FITA = 500, 200  # a janela de negocios guarda 200 linhas desde 16/11/2026 (31 ate 3/11, 100 ate 13/11)
 FALHAS_MAX = 3  # testes seguidos sem o ativo para dar a janela como fechada (ver ativa_estavel)
 LEITURAS_LINHA = 3  # tentativas por linha de saldo vazia/incoerente (ver Tryd.linha_saldo)
 VISTOS_MAX = 50_000  # numeros de negocio lembrados por ativo (o `num` so cresce dentro do dia)
@@ -47,7 +49,7 @@ CREATE TABLE IF NOT EXISTS tryd_saldo (
 );
 CREATE TABLE IF NOT EXISTS tryd_fita (
     dia INTEGER NOT NULL, ativo TEXT NOT NULL, num INTEGER NOT NULL, ts_ms INTEGER, hora TEXT, qtd REAL, preco REAL,
-    comprador TEXT, vendedor TEXT, agressor TEXT, var TEXT,
+    comprador TEXT, vendedor TEXT, agressor TEXT, var TEXT, agente_agr TEXT,
     PRIMARY KEY (dia, ativo, num)
 );
 CREATE INDEX IF NOT EXISTS ix_tryd_fita_ts ON tryd_fita (dia, ativo, ts_ms);  -- /players agrega a fita so do que veio depois
@@ -120,7 +122,7 @@ class Tryd:
 
     def fita(self, ts, ativo):
         """Negocios que apareceram desde a ultima chamada, do mais antigo ao mais novo: (dia, ativo, num, ts, hora, qtd,
-        preco, comprador, vendedor, agressor, var). A linha so vale se o numero continua o mesmo depois de ler os
+        preco, comprador, vendedor, agressor, var, agente_agr). A linha so vale se o numero continua o mesmo depois de ler os
         detalhes (a janela e redesenhada a qualquer momento e empurra as linhas); senao fica para a proxima leitura."""
         nome, vistos, novos = f"{ativo}_NEGS", self.vistos.setdefault(ativo, set()), []
         velhos = self.velhos.setdefault(ativo, set())  # negocios de outro dia: fora de `vistos` (num alto distorce o corte)
@@ -131,7 +133,7 @@ class Tryd:
             det = [self._ler(f"{nome}.{c}.{i}") for c in FITA_CAMPOS]
             if self._ler(f"{nome}.NUM.{i}") != n:
                 continue
-            hora, qtd, preco, comprador, vendedor, agressor, var = det
+            hora, qtd, preco, comprador, vendedor, agressor, var, agente = det
             if isinstance(hora, str) and len(hora) > 11 and hora[2] == "/":
                 # com negocios de dois dias na janela o Tryd poe a data ("05/11/2026 18:31:22.221", 6/11/2026): o de
                 # outro dia (a fita de ontem antes da abertura) nao entra; o de hoje fica so com a hora, como sempre
@@ -145,7 +147,8 @@ class Tryd:
                 velhos.add(n)
                 continue
             vistos.add(n)
-            novos.append((ts // 86_400_000, ativo, n, ts, hora, qtd, preco, comprador, vendedor, agressor, var))
+            novos.append((ts // 86_400_000, ativo, n, ts, hora, qtd, preco, comprador, vendedor, agressor, var,
+                          None if vazio(agente) else agente))
         if len(vistos) > VISTOS_MAX:
             corte = max(vistos) - VISTOS_MAX * 5  # `num` anda de 10 em 10: guarda a metade mais recente
             vistos.intersection_update({x for x in vistos if x >= corte})
@@ -157,6 +160,13 @@ class Tryd:
                 self.dde.fechar()
             finally:
                 self.dde = None
+
+
+def migrar(db):
+    """Colunas acrescentadas depois da criacao da tabela (ALTER TABLE ADD COLUMN so muda o schema: instantaneo)."""
+    if "agente_agr" not in {r[1] for r in db.execute("PRAGMA table_info(tryd_fita)")}:
+        db.execute("ALTER TABLE tryd_fita ADD COLUMN agente_agr TEXT")
+        db.commit()
 
 
 def gravar(db, tabela, linhas, ignorar=False):
@@ -180,6 +190,7 @@ def main():
     acoes = [a for a in args.acoes.split(",") if a]
 
     db = banco.abrir(args.db, SCHEMA)
+    migrar(db)
     tryd, fim = Tryd(), time.time() + args.segundos if args.segundos > 0 else float("inf")
     ativas, logado = {}, {}
     prox_saldo = prox_acoes = prox_flush = 0.0

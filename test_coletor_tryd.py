@@ -42,7 +42,8 @@ def fita(nums, ativo="WINZ26", agressor="Comprador"):
     for i, n in enumerate(nums):
         d.update({f"{ativo}_NEGS.NUM.{i}": str(n), f"{ativo}_NEGS.DAT.{i}": f"15:00:00.{i:03d}",
                   f"{ativo}_NEGS.QUL.{i}": "3", f"{ativo}_NEGS.PRE.{i}": "169755", f"{ativo}_NEGS.ACP.{i}": "XP",
-                  f"{ativo}_NEGS.AVD.{i}": "Ideal", f"{ativo}_NEGS.AGR.{i}": agressor, f"{ativo}_NEGS.VAR.{i}": "="})
+                  f"{ativo}_NEGS.AVD.{i}": "Ideal", f"{ativo}_NEGS.AGR.{i}": agressor, f"{ativo}_NEGS.VAR.{i}": "=",
+                  f"{ativo}_NEGS.AGAG.{i}": "XP" if agressor == "Comprador" else "Ideal"})
     return d
 
 
@@ -144,7 +145,7 @@ class TestFita(unittest.TestCase):
     def test_primeira_leitura_traz_tudo_do_mais_antigo_ao_mais_novo(self):
         novos = self.t.fita(TS, "WINZ26")
         self.assertEqual([r[2] for r in novos], [30, 40, 50])
-        self.assertEqual(novos[0], (DIA, "WINZ26", 30, TS, "15:00:00.002", 3, 169755, "XP", "Ideal", "Comprador", "="))
+        self.assertEqual(novos[0], (DIA, "WINZ26", 30, TS, "15:00:00.002", 3, 169755, "XP", "Ideal", "Comprador", "=", "XP"))
 
     def test_so_negocios_novos(self):
         self.t.fita(TS, "WINZ26")
@@ -206,6 +207,23 @@ class TestBanco(unittest.TestCase):
         ct.gravar(db, "tryd_fita", t.fita(TS, "WINZ26"), True)
         self.assertEqual(db.execute("select count(*), min(brk), max(vol) from tryd_saldo").fetchone(), (3, "A", 3))
         self.assertEqual(db.execute("select count(*), sum(qtd), min(comprador) from tryd_fita").fetchone(), (2, 6, "XP"))
+
+    def test_agente_agressor_e_migracao_da_tabela_antiga(self):
+        db = sqlite3.connect(":memory:")  # tabela de antes de 16/11/2026, sem agente_agr e com uma linha antiga
+        db.executescript(ct.SCHEMA.replace(" agente_agr TEXT,", ""))
+        db.execute("INSERT INTO tryd_fita VALUES (1, 'WINZ26', 5, 0, '09:00', 1, 1, 'A', 'B', 'Comprador', '=')")
+        ct.migrar(db)
+        ct.migrar(db)  # idempotente
+        t = ct.Tryd(lambda: DdeFalso(fita([20, 10])))
+        t.conectar()
+        ct.gravar(db, "tryd_fita", t.fita(TS, "WINZ26"), True)
+        self.assertEqual(db.execute("select num, agente_agr from tryd_fita order by num").fetchall(),
+                         [(5, None), (10, "XP"), (20, "XP")])
+
+    def test_le_as_200_linhas_da_janela(self):
+        t = ct.Tryd(lambda: DdeFalso(fita(list(range(2000, 0, -10)))))  # 200 negocios
+        t.conectar()
+        self.assertEqual(len(t.fita(TS, "WINZ26")), 200)
 
     def test_dde_ausente_levanta_oserror(self):
         def abrir():
