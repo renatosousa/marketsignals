@@ -220,5 +220,63 @@ class TestRlp(unittest.TestCase):
         self.assertEqual(r["rlp"]["t"], [])
 
 
+class TestFallbackFita(unittest.TestCase):
+    """Saldo reconstruido pela fita quando as janelas de Saldo do Tryd param (13 a 17/11/2026)."""
+
+    def setUp(self):
+        players._CACHE_FITA.clear()
+
+    def fita(self):
+        """Minuto 12:00 com Goldman comprando 5 de XP e vendendo 3 (captura de 2 de 2 negocios)."""
+        return [(DIA, "WINZ26", 10, T0, "12:00:00.000", 5, 170000, "Goldman", "XP", "Comprador", "+"),
+                (DIA, "WINZ26", 20, T0 + 1000, "12:00:01.000", 3, 169995, "XP", "Goldman", "Vendedor", "-")]
+
+    def test_dia_sem_foto_de_saldo_usa_a_fita(self):
+        r = players.montar(banco([], self.fita()), DIA)
+        self.assertEqual(r["fonte_saldo"], "FITA_FALLBACK")
+        self.assertEqual(r["ativo"], "WINZ26")
+        self.assertEqual(r["series"]["Estrangeiro"]["saldo"], [2])
+        self.assertEqual(r["t"], [T0 // 1000])
+        self.assertAlmostEqual(r["captura_media"], 1.0)
+        self.assertEqual(r["fotos"], 0)
+        self.assertEqual(r["corretoras"], [])          # sem foto do saldo nao ha tabela por corretora
+        self.assertEqual(r["negocios_fita"], 2)
+
+    def test_saldo_atrasado_no_pregao_usa_a_fita(self):
+        saldo = [(T0 - 120_000, "XP", 1, 1, 1, 0)]     # ultima foto as 11:58
+        r = players.montar(banco(saldo, self.fita()), DIA, "WINZ26", agora_ms=T0)
+        self.assertEqual(r["fonte_saldo"], "FITA_FALLBACK")
+
+    def test_saldo_em_dia_continua_sendo_a_fonte(self):
+        saldo = [(T0 - 10_000, "XP", 1, 1, 1, 0)]      # 10 s antes de agora
+        r = players.montar(banco(saldo, self.fita()), DIA, "WINZ26", agora_ms=T0)
+        self.assertEqual(r["fonte_saldo"], "TRYD_SALDO")
+        self.assertIsNone(r["captura_media"])
+
+    def test_fora_do_pregao_saldo_velho_nao_dispara_o_fallback(self):
+        saldo = [(T0 - 120_000, "XP", 1, 1, 1, 0)]
+        r = players.montar(banco(saldo, self.fita()), DIA, "WINZ26", agora_ms=T0 + 7 * 3_600_000)
+        self.assertEqual(r["fonte_saldo"], "TRYD_SALDO")
+
+    def test_dia_padrao_com_saldo_atrasado_e_hoje(self):
+        saldo = [(T0 - 120_000, "XP", 1, 1, 1, 0)]
+        r = players.montar(banco(saldo, self.fita()), None, "WINZ26", agora_ms=T0)
+        self.assertEqual(r["dia"], DIA)
+        self.assertEqual(r["fonte_saldo"], "FITA_FALLBACK")
+
+    def test_dia_padrao_avanca_para_o_ultimo_dia_da_fita(self):
+        saldo = [(T0 - DIA_MS, "XP", 1, 1, 1, 0)]      # saldo so de ontem, fita de hoje
+        r = players.montar(banco(saldo, self.fita()), None, agora_ms=T0)
+        self.assertEqual(r["dia"], DIA)
+        self.assertEqual(r["fonte_saldo"], "FITA_FALLBACK")
+        self.assertIn(DIA, r["dias"])
+
+    def test_saldo_do_dia_tambem_tem_o_fallback(self):
+        r = players.saldo_do_dia(banco([], self.fita()), DIA, "WINZ26")
+        self.assertEqual(r["fonte_saldo"], "FITA_FALLBACK")
+        self.assertEqual(r["series"]["Estrangeiro"]["saldo"], [2])
+        self.assertAlmostEqual(r["captura_media"], 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

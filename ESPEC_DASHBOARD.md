@@ -162,6 +162,7 @@ com no máximo 8 gráficos. Tabelas largas rolam na horizontal dentro do cartão
 | `GET /api/fechamento?dia=AAAA-MM-DD` | 60 s | tabela do dia (6.2); sem `dia` = último pregão |
 | `GET /api/correlacoes?janela=3600\|10800\|pregao&alvo=WIN\|WDO` | 30 s | decomposição, tabela, móvel, matriz |
 | `GET /api/fluxo?dia=AAAA-MM-DD` | 30 s | placar, estrangeiro do dia, mapa, alinhamento, cesta |
+| `GET /api/saude` | 15 s | saúde dos coletores (`saude_coletores`) e últimos 20 alertas (`saude_alertas`) |
 | `GET /api/mercado?janela=` | 3 s | chaves `win`, `bova`, `macro.graficos` de hoje |
 | `GET /api/opcoes?janela=` | 3 s | chave `opcoes` de hoje, mais `vol` (6.9) |
 | `GET /api/juros?janela=` | 3 s | `macro.di`, `macro.inclinacao`, `macro.breakeven` |
@@ -237,7 +238,8 @@ Cada painel traz a pergunta que responde, o cálculo, a exibição e o critério
 | Macro | `macro_cotacoes`, `WDO$` | idem |
 | Opções mensais e semanais | `opcoes_resumo`, por vencimento | > 180 s, das 10:00 às 17:00 |
 | Agressão da cesta | `agressao_1min` | > 180 s, das 10:00 às 16:55 |
-| Tryd saldo e fita | `tryd_saldo`, `tryd_fita` | > 180 s no pregão |
+| Tryd saldo | `tryd_saldo` | > 60 s no pregão, das 09:00 às 18:25 |
+| Tryd fita | `tryd_fita` | > 180 s no pregão |
 | Regime | `regime_live` | > 180 s no pregão |
 | VIX | `macro_cotacoes`, `IB:VIX` | > 30 min |
 | Fluxo oficial B3 | `max(data_ref)` de `fluxo_diario` | mais velho que D−2 úteis depois das 10:00 |
@@ -250,8 +252,10 @@ Cada painel traz a pergunta que responde, o cálculo, a exibição e o critério
 "Pregão" = dia útil das 09:00 às 18:25 (feriados: `leiloes.feriados`). Fora do horário de cada fonte o estado é
 "fora do horário", nunca erro. Mantenha a checagem de preço congelado (`parado_ha`).
 
-**Exibição:** uma faixa no topo, "14 de 16 fontes em dia", verde, amarela ou vermelha; ao tocar, abre a lista. As fontes
-com problema aparecem sem precisar abrir.
+**Exibição:** uma faixa no topo, "14 de 15 fontes em dia", verde, amarela ou vermelha; ao tocar, abre a lista. As fontes
+com problema aparecem sem precisar abrir. Saldo e fita do Tryd são fontes separadas: de 13/11/2026 18:29 a 17/11 as
+janelas de saldo pararam enquanto a fita seguia, e a fonte única escondia a falha. Quando o saldo está atrasado e há
+fita do dia, a página `/players` reconstrói a série pela fita e mostra o aviso "saldo reconstruído pela fita".
 
 **Aceite:** em 13/11 a lista mostra Leilões do Tesouro (último 05/11) e Focus (23/10) como atrasados.
 

@@ -19,11 +19,19 @@ acoes (BOVA11 em cotas), com foto a cada 60 s e sem fita (o coletor so le o sald
           grupo, % do volume capturado que foi RLP por faixa e, por corretora, a parte do volume dela que foi RLP
           (sinal de varejo). A fita capta 45-75% dos negocios (a janela do Tryd guarda 31 linhas), entao e uma amostra;
           o saldo acima e a fonte exata dos totais.
+
+Fonte do saldo: tryd_saldo (uma foto a cada 10 s). Quando o dia nao tem fotos validas de saldo de um futuro (WIN/WDO)
+mas tem fita, ou quando e hoje e o saldo esta atrasado (fallback_tryd_fita.saldo_atrasado), a serie e reconstruida
+pela fita e a resposta vem com `fonte_saldo` = "FITA_FALLBACK" (saldo normal: "TRYD_SALDO"). O fallback e uma
+ESTIMATIVA: a fita capta 45-75% dos negocios e o proprio fallback ajusta cada minuto pela captura.
 """
 import datetime
 import re
+import sqlite3
 
 import numpy as np
+
+from relogio import local_br_ms
 
 DIA_MS = 86_400_000
 ORDEM_ATIVOS = ("WIN", "WDO", "PETR4", "VALE3", "ITUB4", "BBDC4", "BOVA11")  # ordem do seletor (prefixo: o vencimento muda)
@@ -310,31 +318,117 @@ def fotos_do_dia(con, dia, ativo):
     return desde_o_zeramento(linhas), havia
 
 
-def saldo_do_dia(con, dia, ativo):
+def saldo_do_dia(con, dia, ativo, agora_ms=None):
     """So o saldo por grupo, sem a fita (que e a parte cara do montar): {"t": [s], "series": {grupo: {"saldo": []}}}
-    ou None sem fotos validas no dia."""
+    ou None sem fotos validas no dia.
+
+    Fallback pela fita (fallback_tryd_fita.py): quando o dia nao tem fotos validas de um futuro mas tem fita, ou
+    quando e hoje e o ultimo tryd_saldo do ativo tem mais de 60 s, a serie vem de `saldo_da_fita` e a resposta
+    marca "fonte_saldo": "FITA_FALLBACK" (saldo real: "TRYD_SALDO")."""
+    agora_ms = local_br_ms() if agora_ms is None else int(agora_ms)
     linhas, _ = fotos_do_dia(con, dia, ativo)
+    hoje = dia == agora_ms // DIA_MS
+    if (not linhas and _FUTURO.match(ativo)) or (linhas and hoje and _saldo_atrasado(con, ativo, agora_ms)):
+        f = _fita_fallback(con, dia, ativo)
+        if f:
+            return {"t": f["t"], "series": f["series"], "fonte_saldo": "FITA_FALLBACK",
+                    "captura_media": f["captura_media"]}
     if not linhas:
         return None
     ts_ms, series, _, _ = saldo_por_grupo(linhas)
-    return {"t": [x // 1000 for x in ts_ms], "series": series}
+    return {"t": [x // 1000 for x in ts_ms], "series": series, "fonte_saldo": "TRYD_SALDO",
+            "captura_media": None}
 
 
-def montar(con, dia, ativo=None):
+def _max_dia_fita(con, ativo=None):
+    """Ultimo dia com fita do ativo (ou de qualquer ativo), ou None sem tabela/dados."""
+    sql = "SELECT max(dia) FROM tryd_fita" + (" WHERE ativo=?" if ativo else "")
+    try:
+        r = con.execute(sql, (ativo,) if ativo else ()).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return int(r[0]) if r and r[0] is not None else None
+
+
+def _ativos_da_fita(con, dia):
+    """Ativos com fita no dia, na ordem do seletor (dia em que so a fita chegou, sem foto de saldo)."""
+    try:
+        return sorted((r[0] for r in con.execute("SELECT DISTINCT ativo FROM tryd_fita WHERE dia=?", (int(dia),))),
+                      key=_ordem_ativo)
+    except sqlite3.OperationalError:
+        return []
+
+
+def _dias_do_ativo(con, ativo):
+    """Dias com saldo ou com fita do ativo, para o seletor de data: com o saldo parado e a fita em dia (13 a
+    17/11/2026) o dia corrente precisa continuar selecionavel."""
+    dias = {r[0] for r in con.execute("SELECT DISTINCT ts_ms / ? FROM tryd_saldo WHERE ativo=?",
+                                      (DIA_MS, ativo))}
+    try:
+        dias |= {r[0] for r in con.execute("SELECT DISTINCT dia FROM tryd_fita WHERE ativo=?", (ativo,))}
+    except sqlite3.OperationalError:
+        pass
+    return sorted(dias)
+
+
+def _fita_fallback(con, dia, ativo):
+    """Serie reconstruida pela fita (None sem fita). Import local: fallback_tryd_fita importa este modulo."""
+    import fallback_tryd_fita
+    return fallback_tryd_fita.saldo_da_fita(con, dia, ativo)
+
+
+def _saldo_atrasado(con, ativo, agora_ms):
+    """True no pregao com o ultimo tryd_saldo do ativo velho (fallback_tryd_fita.saldo_atrasado)."""
+    import fallback_tryd_fita
+    return fallback_tryd_fita.saldo_atrasado(con, ativo, agora_ms)
+
+
+def _resposta_fita(con, dia, ativo, ativos, f):
+    """Resposta do /api/players quando o saldo vem da fita (fonte_saldo = FITA_FALLBACK): a serie reconstruida
+    mais o RLP da fita. Sem foto da janela de Saldo nao ha a tabela por corretora (`corretoras` vazia)."""
+    agg, n_fita, _nmin, _nmax = fita_agregada(con, ativo, dia)
+    rlp, _pct = fita_rlp(agg)
+    t = f["t"]
+    return {"ativo": ativo, "dia": dia, "dias": _dias_do_ativo(con, ativo), "ativos": ativos,
+            "unidade": unidade(ativo), "t": t, "series": f["series"], "agr_disponivel": True,
+            "fonte_saldo": "FITA_FALLBACK", "captura_media": f["captura_media"],
+            "foto_inicio": t[0] if t else None, "foto_fim": t[-1] if t else None, "fotos": 0,
+            "rlp": rlp, "agr_fita": None, "agr_cobertura_fita": None, "corretoras": [],
+            "grupos": {g: DESCRICAO[g] for g in GRUPOS}, "negocios_fita": n_fita}
+
+
+def montar(con, dia, ativo=None, agora_ms=None):
     """Resposta do /api/players. `dia` = indice do dia (ts_ms // 86400000) ou None para o ultimo com saldo do ativo;
-    `ativo` = codigo do Tryd (WINZ26, PETR4...) ou None para o primeiro do seletor (o WIN) no ultimo dia coletado."""
+    `ativo` = codigo do Tryd (WINZ26, PETR4...) ou None para o primeiro do seletor (o WIN) no ultimo dia coletado.
+
+    Com o saldo do Tryd parado e a fita em dia, o dia padrao passa a ser o ultimo dia da fita (13 a 17/11/2026) e
+    a serie sai de fallback_tryd_fita (fonte_saldo = "FITA_FALLBACK"); com o saldo normal, "TRYD_SALDO"."""
+    agora_ms = local_br_ms() if agora_ms is None else int(agora_ms)
     if dia is None:
-        q = "SELECT max(ts_ms) FROM tryd_saldo" + (" WHERE ativo=?" if ativo else "")
-        dia = con.execute(q, (ativo,) if ativo else ()).fetchone()[0]
+        if ativo:
+            ult = con.execute("SELECT max(ts_ms) FROM tryd_saldo WHERE ativo=?", (ativo,)).fetchone()[0]
+            dia = ult // DIA_MS if ult is not None else _max_dia_fita(con, ativo)
+            if _saldo_atrasado(con, ativo, agora_ms):
+                dia = agora_ms // DIA_MS          # hoje: a fita assume enquanto a janela de saldo nao voltar
+        else:
+            ult = con.execute("SELECT max(ts_ms) FROM tryd_saldo").fetchone()[0]
+            dia = ult // DIA_MS if ult is not None else None
+            dia_fita = _max_dia_fita(con)
+            if dia_fita is not None and (dia is None or dia_fita > dia):
+                dia = dia_fita
         if dia is None:
             return {"vazio": True, "ativo": ativo, "ativos": []}
-        dia //= DIA_MS
-    ativos = ativos_do_dia(con, dia)
+    ativos = ativos_do_dia(con, dia) or _ativos_da_fita(con, dia)
     if ativo is None:
         if not ativos:
             return {"vazio": True, "ativo": None, "dia": dia, "ativos": []}
         ativo = ativos[0]
     linhas, havia = fotos_do_dia(con, dia, ativo)
+    hoje = dia == agora_ms // DIA_MS
+    if (not linhas and _FUTURO.match(ativo)) or (hoje and _saldo_atrasado(con, ativo, agora_ms)):
+        f = _fita_fallback(con, dia, ativo)
+        if f:
+            return _resposta_fita(con, dia, ativo, ativos, f)
     if not linhas:
         return {"vazio": True, "ativo": ativo, "dia": dia, "ativos": ativos, "unidade": unidade(ativo),
                 **({"motivo": "tabela_de_ontem"} if havia else {})}
@@ -342,10 +436,10 @@ def montar(con, dia, ativo=None):
     agg, n_fita, nmin, nmax = fita_agregada(con, ativo, dia)
     rlp, pct = fita_rlp(agg)
     agr_fita, agr_brk = agressao_da_fita(agg) if not tem_agr and agg else (None, None)
-    dias = [r[0] for r in con.execute("SELECT DISTINCT ts_ms / ? FROM tryd_saldo WHERE ativo=? ORDER BY 1", (DIA_MS, ativo))]
     return {
-        "ativo": ativo, "dia": dia, "dias": dias, "ativos": ativos, "unidade": unidade(ativo),
+        "ativo": ativo, "dia": dia, "dias": _dias_do_ativo(con, ativo), "ativos": ativos, "unidade": unidade(ativo),
         "t": [x // 1000 for x in ts_ms], "series": series, "agr_disponivel": tem_agr,
+        "fonte_saldo": "TRYD_SALDO", "captura_media": None,
         "foto_inicio": linhas[0][0] // 1000, "foto_fim": ts_ms[-1] // 1000, "fotos": len({r[0] for r in linhas}),
         "rlp": {**rlp, "t": rlp["t"]},
         "agr_fita": agr_fita, "agr_cobertura_fita": cobertura_fita(n_fita, nmin, nmax) if agr_fita else None,

@@ -27,6 +27,7 @@ GET /api/correlacoes?janela=3600|10800|pregao&alvo=WIN|WDO
                                           -> tabela com referencia, movel, matriz e decomposicao (cache 30 s).
 GET /api/fluxo?dia=AAAA-MM-DD&ativo=X    -> placar do estrangeiro, mapa, quem acompanha o preco, cesta (cache 30 s).
 GET /api/fechamento?dia=AAAA-MM-DD       -> fechamento do dia: precos, faixas, DI, acoes, vol, players (cache 60 s).
+GET /api/saude                            -> saude dos coletores (saude_coletores) e ultimos alertas (cache 15 s).
 Todos os ts sao hora do servidor MT5 (Brasilia) codificada como epoch "UTC", como no banco.
 """
 import argparse
@@ -49,6 +50,7 @@ import curvas
 import desempenho
 import grafico_quant as gq
 import leiloes
+import monitor_saude
 import opcoes_manual as om
 import painel_v2
 import players
@@ -59,7 +61,7 @@ PONTOS = 600            # pontos por serie temporal (define o tamanho do balde)
 CACHE_S = 3.0
 CACHE_PLAYERS_S = 10.0  # o saldo do Tryd muda a cada 10 s
 CACHE_LEILOES_S = 30.0  # o resultado sai uma vez por dia; o calculo (pandas sobre 20 mil linhas) nao precisa rodar a cada pedido
-CACHE_V2_S = {"resumo": 5.0, "correlacoes": 30.0, "fluxo": 30.0, "fechamento": 60.0}
+CACHE_V2_S = {"resumo": 5.0, "correlacoes": 30.0, "fluxo": 30.0, "fechamento": 60.0, "saude": 15.0}
 INICIO_PREGAO_H = 9
 ESTATICOS = {"comum.css": "text/css; charset=utf-8", "comum.js": "application/javascript; charset=utf-8"}
 
@@ -918,6 +920,14 @@ def main():
                 try:
                     self.enviar(200, app.v2("fechamento", ("v2", "fechamento", idx),
                                             lambda con: painel_v2.fechamento_api(con, idx)),
+                                "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
+            elif u.path == "/api/saude":
+                try:
+                    self.enviar(200, app.v2("saude", ("v2", "saude"),
+                                            lambda con: monitor_saude.saude_api(con)),
                                 "application/json; charset=utf-8")
                 except Exception as e:
                     self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),

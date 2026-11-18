@@ -70,7 +70,7 @@ CREATE TABLE fatores_dia (data TEXT NOT NULL, alvo TEXT NOT NULL, fator TEXT NOT
 
 
 def banco_coleta():
-    """Banco com as 14 fontes de coleta em dia as 14:00 de 11/11/2026 (quarta). -> (con, agora_ms)."""
+    """Banco com as 15 fontes de coleta em dia as 14:00 de 11/11/2026 (quarta). -> (con, agora_ms)."""
     agora = DIA * D + 14 * 3_600_000
     t = agora - 10_000                                    # 13:59:50
     db = sqlite3.connect(":memory:")
@@ -119,8 +119,8 @@ class TestColeta(unittest.TestCase):
     def test_tudo_em_dia(self):
         db, agora = banco_coleta()
         c = p.coleta(db, agora)
-        self.assertEqual(c["total"], 14)
-        self.assertEqual(c["em_dia"], 14)
+        self.assertEqual(c["total"], 15)
+        self.assertEqual(c["em_dia"], 15)
         self.assertEqual(c["pior"], "ok")
         self.assertEqual(set(estados(c).values()), {"ok"})
         self.assertEqual({f["nome"]: f["ultimo"] for f in c["fontes"]}["Focus"], "06/11")
@@ -135,7 +135,7 @@ class TestColeta(unittest.TestCase):
         self.assertEqual(e["Focus"], "atrasado")
         self.assertEqual(e["Leilões do Tesouro"], "atrasado")
         self.assertEqual(e["WIN (livro)"], "parado")
-        self.assertEqual(c["em_dia"], 11)
+        self.assertEqual(c["em_dia"], 12)
         self.assertEqual(c["pior"], "parado")
         detalhes = {f["nome"]: f["detalhe"] for f in c["fontes"]}
         self.assertIn("21 dias corridos", detalhes["Focus"])
@@ -157,8 +157,8 @@ class TestColeta(unittest.TestCase):
     def test_sabado_fora_do_horario(self):
         db, _ = banco_coleta()
         c = p.coleta(db, ts(SABADO, 12, 0))
-        self.assertEqual(c["total"], 14)
-        self.assertEqual(c["em_dia"], 14)
+        self.assertEqual(c["total"], 15)
+        self.assertEqual(c["em_dia"], 15)
         self.assertEqual(c["pior"], "ok")
         self.assertEqual(set(estados(c).values()), {"fora do horario"})
 
@@ -169,12 +169,12 @@ class TestColeta(unittest.TestCase):
         e = estados(c)
         self.assertEqual(e["Focus"], "sem dados")            # sem dados vence fora do horario
         self.assertEqual(e["Barras de 1 min"], "fora do horario")
-        self.assertEqual(c["em_dia"], 13)
+        self.assertEqual(c["em_dia"], 14)
         self.assertEqual(c["pior"], "atrasado")
 
     def test_banco_vazio_todas_sem_dados(self):
         c = p.coleta(sqlite3.connect(":memory:"), ts(DIA, 14, 0))
-        self.assertEqual(c["total"], 14)
+        self.assertEqual(c["total"], 15)
         self.assertEqual(c["em_dia"], 0)
         self.assertEqual(set(estados(c).values()), {"sem dados"})
         self.assertEqual(c["pior"], "atrasado")
@@ -203,6 +203,31 @@ class TestColeta(unittest.TestCase):
                        [(ts(DIA, 10, 1), "WINZ26"), (ts(DIA, 10, 1), "WDOZ26")])
         self.assertEqual(p._max_ts_fita(db), ts(DIA, 10, 1))
         self.assertIsNone(p._max_ts_fita(sqlite3.connect(":memory:")))
+
+    def test_saldo_parado_nao_esconde_a_fita_em_dia(self):
+        # 13 a 17/11/2026: as janelas de saldo pararam de exportar e a fita seguiu. Antes as duas eram uma fonte
+        # so ("Tryd saldo e fita"), entao o painel dizia ok enquanto o saldo real estava parado ha 2 pregoes.
+        db, agora = banco_coleta()
+        db.execute("UPDATE tryd_saldo SET ts_ms=ts_ms-3600000")
+        c = p.coleta(db, agora)
+        e = estados(c)
+        self.assertEqual(e["Tryd saldo"], "parado")
+        self.assertEqual(e["Tryd fita"], "ok")
+        self.assertEqual(c["em_dia"], 14)
+        self.assertEqual(c["pior"], "parado")
+        f = {x["nome"]: x for x in c["fontes"]}["Tryd saldo"]
+        self.assertIn("sem leitura", f["detalhe"])
+        self.assertEqual(f["ts_ms"], agora - 10_000 - 3_600_000)
+
+    def test_fita_parada_nao_esconde_o_saldo_em_dia(self):
+        db, agora = banco_coleta()
+        db.execute("UPDATE tryd_fita SET dia=?, ts_ms=?", (DIA_ANT, ts(DIA_ANT, 18, 0)))
+        c = p.coleta(db, agora)
+        e = estados(c)
+        self.assertEqual(e["Tryd saldo"], "ok")
+        self.assertEqual(e["Tryd fita"], "parado")
+        self.assertEqual(c["em_dia"], 14)
+        self.assertEqual(c["pior"], "parado")
 
 
 class TestAlertas(unittest.TestCase):

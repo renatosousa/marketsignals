@@ -395,8 +395,11 @@ def _max_ts_fita(con):
     return ts
 
 
-def _fonte(nome, ultimo, idade_s, estado, detalhe=None):
-    return {"nome": nome, "ultimo": ultimo, "idade_s": idade_s, "estado": estado, "detalhe": detalhe}
+def _fonte(nome, ultimo, idade_s, estado, detalhe=None, ts_ms=None):
+    """Uma fonte da coleta. `ts_ms` e o instante cru do ultimo dado (o `ultimo` e o texto da tela): o
+    monitor_saude.py usa esse campo para gravar saude_coletores; pode ser None (fonte diaria sem hora)."""
+    return {"nome": nome, "ultimo": ultimo, "idade_s": idade_s, "estado": estado, "detalhe": detalhe,
+            "ts_ms": ts_ms}
 
 
 def coleta(con, agora_ms):
@@ -421,14 +424,14 @@ def coleta(con, agora_ms):
             return _fonte(nome, None, None, "sem dados", "sem dados na tabela")
         idade = (agora_ms - ts) / 1000
         if not dentro(h0, h1):
-            return _fonte(nome, _hora(ts, dia), idade, "fora do horario")
+            return _fonte(nome, _hora(ts, dia), idade, "fora do horario", ts_ms=ts)
         estado = "parado" if idade > 6 * atraso_s else "atrasado" if idade > atraso_s else "ok"
         detalhe = None
         if estado == "parado":
             detalhe = f"sem leitura há {idade / 60:.0f} min"
         elif estado == "atrasado":
             detalhe = f"atraso de {idade:.0f} s"
-        return _fonte(nome, _hora(ts, dia), idade, estado, detalhe)
+        return _fonte(nome, _hora(ts, dia), idade, estado, detalhe, ts_ms=ts)
 
     def por_data(nome, sql, h0, h1, criterio, detalhe_atraso):
         """Estado de uma fonte diaria: atrasada quando a data mais recente viola o criterio (d1/d2/n dias)."""
@@ -439,13 +442,14 @@ def coleta(con, agora_ms):
         dt = r[0] if r else None
         if dt is None:
             return _fonte(nome, None, None, "sem dados", "sem dados na tabela")
-        idade = (agora_ms - corr._dia(dt) * D) / 1000
+        ts_dt = corr._dia(dt) * D
+        idade = (agora_ms - ts_dt) / 1000
         ultimo = _dia_mes(dt)
         if not dentro(h0, h1):
-            return _fonte(nome, ultimo, idade, "fora do horario")
+            return _fonte(nome, ultimo, idade, "fora do horario", ts_ms=ts_dt)
         atrasada = criterio(dt)
         return _fonte(nome, ultimo, idade, "atrasado" if atrasada else "ok",
-                     detalhe_atraso(dt) if atrasada else None)
+                     detalhe_atraso(dt) if atrasada else None, ts_ms=ts_dt)
 
     fontes = []
 
@@ -459,7 +463,7 @@ def coleta(con, agora_ms):
             congelado = None
         if congelado is not None and congelado >= 180:
             f = _fonte(f["nome"], f["ultimo"], f["idade_s"], "parado",
-                       f"preço congelado há {congelado:.0f} s")
+                       f"preço congelado há {congelado:.0f} s", ts_ms=f["ts_ms"])
     fontes.append(f)
 
     fontes.append(por_idade("BOVA11 (livro)", _max_ts(con, "SELECT max(ts_ms) FROM snapshots "
@@ -482,31 +486,26 @@ def coleta(con, agora_ms):
         idades = {v: (agora_ms - t) / 1000 for v, t in ts_por_venc.items()} or {"": (agora_ms - ts_ult) / 1000}
         pior_venc, pior_idade = max(idades.items(), key=lambda kv: kv[1])
         if not dentro(10 * 60, 17 * 60):
-            fontes.append(_fonte("Opções mensais e semanais", _hora(ts_ult, dia), pior_idade, "fora do horario"))
+            fontes.append(_fonte("Opções mensais e semanais", _hora(ts_ult, dia), pior_idade, "fora do horario",
+                                 ts_ms=ts_ult))
         else:
             estado = "parado" if pior_idade > 6 * 180 else "atrasado" if pior_idade > 180 else "ok"
             detalhe = None
             if estado != "ok":
                 detalhe = (f"vencimento {pior_venc} sem leitura há {pior_idade / 60:.0f} min" if pior_venc
                            else f"sem leitura há {pior_idade / 60:.0f} min")
-            fontes.append(_fonte("Opções mensais e semanais", _hora(ts_ult, dia), pior_idade, estado, detalhe))
+            fontes.append(_fonte("Opções mensais e semanais", _hora(ts_ult, dia), pior_idade, estado, detalhe,
+                                 ts_ms=ts_ult))
 
     fontes.append(por_idade("Agressão da cesta", _max_ts(con, "SELECT max(ts_ms) FROM agressao_1min"),
                             10 * 60, 16 * 60 + 55, 180))
 
-    # Tryd: o pior entre o saldo e a fita
-    ts_sal = _max_ts(con, "SELECT max(ts_ms) FROM tryd_saldo")
-    ts_fit = _max_ts_fita(con)
-    if ts_sal is None and ts_fit is None:
-        fontes.append(_fonte("Tryd saldo e fita", None, None, "sem dados", "sem dados na tabela"))
-    else:
-        ts_tryd = max(t for t in (ts_sal, ts_fit) if t is not None)
-        f = por_idade("Tryd saldo e fita", ts_tryd, INICIO_PREGAO_MIN, FIM_PREGAO_MIN, 180)
-        if f["estado"] != "ok" and ts_sal is not None and ts_fit is not None:
-            pior = "fita" if (agora_ms - ts_fit) > (agora_ms - ts_sal) else "saldo"
-            detalhe = (f["detalhe"] or "atrasado") + f" ({pior})"
-            f = _fonte(f["nome"], f["ultimo"], f["idade_s"], f["estado"], detalhe)
-        fontes.append(f)
+    # Tryd: duas fontes. A fita seguiu em dia de 13/11 a 17/11 enquanto o saldo parou, e o painel mostrava as
+    # duas como uma so ("o mais recente das duas"): ninguem foi avisado por 2 pregoes. Agora cada uma cobra o
+    # proprio atraso: saldo 60 s, fita 180 s.
+    fontes.append(por_idade("Tryd saldo", _max_ts(con, "SELECT max(ts_ms) FROM tryd_saldo"),
+                            INICIO_PREGAO_MIN, FIM_PREGAO_MIN, 60))
+    fontes.append(por_idade("Tryd fita", _max_ts_fita(con), INICIO_PREGAO_MIN, FIM_PREGAO_MIN, 180))
 
     fontes.append(por_idade("Regime", _max_ts(con, "SELECT max(ts_ms) FROM regime_live"),
                             INICIO_PREGAO_MIN, FIM_PREGAO_MIN, 180))
@@ -552,12 +551,13 @@ def coleta(con, agora_ms):
         if ts_bar is None:
             fontes.append(_fonte("Barras de 1 min", None, None, "sem dados", "sem dados na tabela"))
         elif not dentro(INICIO_PREGAO_MIN, FIM_PREGAO_MIN):
-            fontes.append(_fonte("Barras de 1 min", _dia_mes(corr._data(ts_bar // D)), None, "fora do horario"))
+            fontes.append(_fonte("Barras de 1 min", _dia_mes(corr._data(ts_bar // D)), None, "fora do horario",
+                                 ts_ms=ts_bar))
         else:
             fontes.append(_fonte("Barras de 1 min", _dia_mes(corr._data(ts_bar // D)),
                                  (agora_ms - ts_bar) / 1000, "atrasado" if faltando else "ok",
                                  f"sem barras de {', '.join(faltando)} até o fim do pregão anterior"
-                                 if faltando else None))
+                                 if faltando else None, ts_ms=ts_bar))
 
     pior = max(GRAVIDADE[f["estado"]] for f in fontes)
     return {"fontes": fontes, "em_dia": sum(f["estado"] in ("ok", "fora do horario") for f in fontes),

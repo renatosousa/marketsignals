@@ -100,6 +100,7 @@ details.metodo p { max-width: 90ch; margin: 6px 0; }
     <label class="chk"><input type="checkbox" id="auto" checked> Atualizar a cada 10 s</label>
   </div>
   <div class="aviso" id="aviso" role="status" hidden></div>
+  <div class="aviso" id="aviso-fita" role="status" hidden></div>
   <div class="legenda" id="legenda" role="group" aria-label="Grupos de corretoras"></div>
 
   <div class="grade">
@@ -212,6 +213,12 @@ function leituraFinal(id, series, fmt = nf0.format) {
 
 function desenhar() {
   const d = dados;
+  const avisoFita = document.getElementById("aviso-fita");
+  avisoFita.hidden = d.fonte_saldo !== "FITA_FALLBACK";
+  if (!avisoFita.hidden) {
+    const pct = d.captura_media == null ? "?" : nf0.format(d.captura_media * 100);
+    avisoFita.textContent = `Saldo reconstruído pela fita (captura média ${pct}%): leia a forma, não o nível. Em 13/11 a forma acompanhou o saldo real em BTG, Estrangeiro, Institucional e Liquidez (correlação 0,8 a 0,9); em XP e Genial não, e os níveis erraram muito.`;
+  }
   const temFita = d.negocios_fita > 0;
   document.querySelectorAll(".card.fita").forEach(c => c.hidden = !temFita);
   document.getElementById("sem-fita").hidden = temFita || !!(d.ativo || "").match(/^(WIN|WDO)/);
@@ -253,6 +260,10 @@ function tabela(d) {
   const cl = v => v == null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "";
   const est = d.agr_fita && d.agr_fita.t.length;
   document.getElementById("u-tab").textContent = `foto das ${hora(d.foto_fim)} · ${d.unidade || "contratos"}` + (est ? " · * agressão estimada pela fita" : "");
+  if (!d.corretoras.length) {
+    document.getElementById("tab").innerHTML = '<div class="vazio">Sem foto do saldo por corretora: a tabela vem da janela de Saldo do Tryd, que está parada. A série acima foi reconstruída pela fita.</div>';
+    return;
+  }
   document.getElementById("tab").innerHTML = `<table><thead><tr><th>Corretora</th><th>Grupo</th><th>Saldo</th><th>Agressão${d.agr_fita ? "*" : ""}</th><th>Volume</th><th>Giro</th><th>% RLP</th></tr></thead><tbody>` +
     d.corretoras.map(c => `<tr><td>${c.corretora}</td><td><i style="background:${icone(c.grupo)}"></i>${c.grupo}</td>
       <td class="${cl(c.saldo)}">${nf0.format(c.saldo)}</td><td class="${cl(c.agr)}">${c.agr == null ? "–" : nf0.format(c.agr) + (d.agr_fita ? "*" : "")}</td>
@@ -297,7 +308,7 @@ async function carregar() {
     if (!dia) el.value = iso(d.dia);
     el.min = iso(d.dias[0]); el.max = iso(d.dias[d.dias.length - 1]);
     document.getElementById("sub").textContent =
-      `${iso(d.dia)} · ${d.fotos} fotos do saldo (${hora(d.foto_inicio)}–${hora(d.foto_fim)})` +
+      `${iso(d.dia)} · ${d.fonte_saldo === "FITA_FALLBACK" ? "saldo reconstruído pela fita" : `${d.fotos} fotos do saldo`} (${hora(d.foto_inicio)}–${hora(d.foto_fim)})` +
       (d.negocios_fita ? ` · ${nf0.format(d.negocios_fita)} negócios na fita` : "");
     // o saldo e acumulado do dia: se a coleta comecou depois da abertura, falta o que veio antes? Nao: o saldo
     // ja traz o acumulado desde a abertura. A serie so nao tem pontos antes da primeira foto.
