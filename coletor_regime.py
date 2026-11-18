@@ -141,6 +141,22 @@ def estado(db, modelo, agora_ms, hist=None):
                 modelo=modelo["treinado_em"])
 
 
+def atualizar_v3(db_path):
+    """Tabelas da v3 que dependem do pregao anterior, na partida (cada uma isolada; falha vira aviso):
+    nowcast do estrangeiro, eps_BR do pregao anterior, abertura justa e correlacoes robustas dos ultimos 10 dias.
+    O treino do modelo_regime_v3 (~90 s) fica na manutencao das 18:40 (manutencao_banco.diaria)."""
+    import importlib
+    passos = (("nowcast_fluxo_v2", lambda m: m.atualizar(db_path)),
+              ("risco_brasil", lambda m: m.atualizar(db_path)),
+              ("abertura_justa", lambda m: m.atualizar(db_path)),
+              ("correlacoes_v3", lambda m: m.atualizar(db_path, 10)))
+    for nome, fn in passos:
+        try:
+            print(f"v3 {nome}: {fn(importlib.import_module(nome))}", flush=True)
+        except Exception as e:
+            print(f"aviso: v3 {nome} nao atualizado ({e.__class__.__name__}: {e})", flush=True)
+
+
 def atualizar_fontes_externas(db_path):
     """Focus e Tesouro Direto na partida do regime (cada um no seu try/except, um nao derruba o outro).
 
@@ -212,6 +228,7 @@ def main():
               flush=True)
     except Exception as e:
         print(f"aviso: fechamento nao consolidado ({e.__class__.__name__}: {e})", flush=True)
+    atualizar_v3(args.db)
 
     if treinar:
         print("treinando o modelo do dia...", flush=True)

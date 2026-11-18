@@ -638,7 +638,21 @@ def diaria(db_path=DB_PADRAO, base=PARQUET_PADRAO, dias_manter=DIAS_MANTER, past
     print(f"[diaria] arquivo frio: {len(novos)} dias exportados, "
           f"{len([r for r in exportados if r['acao'] == 'pulado'])} ja estavam", flush=True)
     backup = backup_nucleo(db_path, pasta_backups, manter)
-    return {"dias_agregados": dias, "linhas_1min": agregados, "exportados": novos, "backup": backup}
+    v3 = treinos_v3(db_path)
+    return {"dias_agregados": dias, "linhas_1min": agregados, "exportados": novos, "backup": backup, "v3": v3}
+
+
+def treinos_v3(db_path):
+    """Retreino diario dos modelos da v3 depois do pregao (cada um isolado): modelo_regime_v3 (~90 s)."""
+    out = {}
+    try:
+        import modelo_regime_v3
+        modelo_regime_v3.atualizar(db_path)
+        out["modelo_regime_v3"] = "ok"
+    except Exception as e:
+        out["modelo_regime_v3"] = f"{e.__class__.__name__}: {e}"
+        print(f"[diaria] aviso: modelo_regime_v3 nao treinado ({out['modelo_regime_v3']})", flush=True)
+    return out
 
 
 def servico(db_path=DB_PADRAO, segundos=0, hora="18:40", base=PARQUET_PADRAO, dias_manter=DIAS_MANTER,
