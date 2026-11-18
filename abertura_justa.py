@@ -233,6 +233,12 @@ def _historico(con, ativo, series=None):
     return out
 
 
+def _sigma_robusto(residuos):
+    """1,4826 x MAD dos residuos: um gap extremo (05/10/2026, +9%) nao infla a faixa dos outros dias."""
+    r = np.asarray(residuos, dtype=float)
+    return float(1.4826 * np.median(np.abs(r - np.median(r))))
+
+
 def _ajustar(treino, x_alvo, features):
     """Ridge padronizado -> (previsao do gap, coef_json)."""
     X = np.array([[r["x"][f] for f in features] for r in treino], dtype=float)
@@ -260,7 +266,7 @@ def _walk_forward(rows, features=FEATURES_MODELO, janela=JANELA, min_treino=MIN_
             pred, coef = _ajustar(treino, row["x"], features)
         sigma = None
         if len(residuos) >= 10:
-            s = float(np.std(residuos[-janela:], ddof=1))
+            s = _sigma_robusto(residuos[-janela:])
             if np.isfinite(s) and s > 0:
                 sigma = s
         prevista = row["fechamento"] * math.exp(pred) if pred is not None else None
@@ -342,7 +348,7 @@ def prever_hoje(con, agora_ms):
         residuos = [r["abertura"] - p["prevista"] for r, p in zip(rows, preds)
                     if p["pred"] is not None and p["prevista"] is not None]
         if len(residuos) >= 10:
-            s = float(np.std(residuos[-JANELA:], ddof=1))
+            s = _sigma_robusto(residuos[-JANELA:])
             sigma = s if np.isfinite(s) and s > 0 else None
         prev = _dia_idx(calendario_b3.pregao_anterior(_data(dia)))
         fechamento = _fechamento_diario(con, ativo).get(prev)

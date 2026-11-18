@@ -31,6 +31,12 @@ $coletas = [ordered]@{
     'AGRESSAO'      = @('AGRESSAO', '--db', 'dados/book.db', '--script', 'coletor_agressao.py')
     # regime do WIN a cada minuto; na partida treina o modelo do dia (modelo_regime.py)
     'REGIME'        = @('REGIME', '--db', 'dados/book.db', '--script', 'coletor_regime.py')
+    # v3 (18/11/2026): Asia, Europa, futuros EUA, commodities e moedas EM pelo Yahoo, desde as 07:00; calendario macro na partida
+    'GLOBAL'        = @('GLOBAL', '--db', 'dados/book.db', '--script', 'coletor_global.py', '--inicio', '07:00', '--fim', '18:30')
+    # v3: watchdog das fontes (saude_coletores/saude_alertas, /api/saude); Telegram desligado (sem --telegram)
+    'SAUDE'         = @('SAUDE', '--db', 'dados/book.db', '--script', 'monitor_saude.py', '--inicio', '08:50', '--fim', '18:35')
+    # v3: manutencao diaria as 18:40 (fita por minuto, Parquet frio, backup do nucleo); NAO apaga nada sem --apagar
+    'MANUT'         = @('MANUT', '--db', 'dados/book.db', '--script', 'manutencao_banco.py', '--inicio', '18:35', '--fim', '23:30')
     # noticias (RSS BR, BCB, Fed, Finnhub, GDELT) + sentimento FinBERT local; ver coletor_noticias.py
     # DESATIVADO em 20/10/2026: faltam feedparser/transformers/FinBERT no .venv e o supervisor reiniciava a cada 10 s.
     # Para reativar: instalar as dependencias (README_NOTICIAS.md) e descomentar a linha abaixo.

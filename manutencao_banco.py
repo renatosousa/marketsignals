@@ -713,6 +713,10 @@ def estado(db_path=DB_PADRAO, base=PARQUET_PADRAO):
 
 
 def main():
+    import sys
+    # chamado pelo supervisor (rodar_coleta.py): "manutencao_banco.py MANUT <segundos> --db ..." = servico
+    if len(sys.argv) > 1 and sys.argv[1] not in ("diaria", "estado", "servico", "expurgar", "-h", "--help"):
+        sys.argv.insert(1, "servico")
     ap = argparse.ArgumentParser(description="Manutencao do book.db: agregado da fita, Parquet frio, expurgo e backup.")
     sub = ap.add_subparsers(dest="comando", required=True)
 
