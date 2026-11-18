@@ -71,6 +71,18 @@
     const acerto = v.acerto_35_dia == null ? "–" : `${fmt(v.acerto_35_dia * 100, 0)}%`;
     const seguintes = (v.postos_seguinte != null || v.postos_5p != null)
       ? `; ${sinal(v.postos_seguinte, 2)} no dia seguinte e ${sinal(v.postos_5p, 2)} em 5 pregões` : "";
+    if (v.invertido) {
+      const f = (v.fora || {}).dia || {};
+      const fora = f.n >= 4 && f.postos != null
+        ? `fora da amostra (${fmt(f.n, 0)} pregões): ${sinal(f.postos, 2)}` +
+          (f.acerto != null ? `, acerto de ${fmt(f.acerto * 100, 0)}% (${fmt(f.n_sinal, 0)} sinais)` : "")
+        : `fora da amostra: ${fmt(f.n || 0, 0)} pregão(ões), ainda sem medida`;
+      return `Score invertido desde ${String(v.invertido_desde || "").split("-").reverse().join("/")} ` +
+        `(com os pesos da espec a correlação era negativa). Na amostra usada para decidir: ` +
+        `${sinal(v.postos_dia, 2)} com o retorno do dia em ${fmt(v.n, 0)} pregões${seguintes}; ` +
+        `acerto de ${acerto} com |score| ≥ 35. ${fora[0].toUpperCase()}${fora.slice(1)}. ` +
+        `Hipótese em teste.`;
+    }
     return `Score com os pesos da espec: correlação ${sinal(v.postos_dia, 2)} com o retorno do dia em ` +
       `${fmt(v.n, 0)} pregões${seguintes}; acerto de ${acerto} com |score| ≥ 35` +
       `${v.n_sinal_dia ? ` (${fmt(v.n_sinal_dia, 0)} sinais)` : ""}. ` +

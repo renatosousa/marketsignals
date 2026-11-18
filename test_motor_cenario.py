@@ -252,6 +252,19 @@ class TestCenario(unittest.TestCase):
                 self.assertLessEqual(abs(i["z"]), 3.0)
                 self.assertIn("n", i)
 
+    def test_score_invertido_em_relacao_ao_bruto(self):
+        r = mc.cenario(self.con, self.ts)
+        self.assertEqual(r["sinal_score"], mc.SINAL_SCORE)
+        self.assertAlmostEqual(r["score_estrutural"], mc.SINAL_SCORE * r["score_estrutural_bruto"])
+        original = mc.SINAL_SCORE
+        try:
+            mc.SINAL_SCORE = 1.0
+            sem = mc.cenario(self.con, self.ts)
+        finally:
+            mc.SINAL_SCORE = original
+        self.assertAlmostEqual(sem["score_estrutural"], r["score_estrutural_bruto"])
+        self.assertEqual(sem["arquetipo"]["nome"], r["arquetipo"]["nome"])   # arquetipo usa o sinal original
+
     def test_pilares_presentes_no_fixture(self):
         r = mc.cenario(self.con, self.ts)
         for chave in ("macro_juros", "fluxo_cambio", "vol_opcoes", "global_commod", "noticias"):

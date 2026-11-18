@@ -66,7 +66,21 @@ um commit no `main`.
 - **Leilões:** a fonte alternativa ao SISWEB (que dá erro 500 desde 05/11) é a API pública do Tesouro
   `apiapex.tesouro.gov.br/aria/v1/api-leiloes-pub/custom/resultados?dataleilao=DD/MM/AAAA`.
 
-## Para o dono decidir
+## Respostas do dono (18/11, manhã)
+
+1. **Expurgo autorizado.** Rodado em 18/11 para `eventos`, `niveis`, `opcoes_cotacoes` e `tryd_fita` (dias exportados
+   e conferidos por checksum, mantidos os 10 pregões mais novos). `snapshots` foi exportada mas **fica no SQLite**
+   (`MANTER_NO_SQLITE`): é a fonte do histórico de 20 a 60 pregões do `motor_regioes`, do `swing`, do RV20 das opções,
+   do `estudo_regioes` e do `consolidar_fechamento`. O espaço em disco só volta com `VACUUM` e os coletores parados.
+2. **Janelas do Tryd:** o dono reabre.
+3. **Copom 08-09/12:** confirmado (`dados/calendario_manual.csv`).
+4. **Score invertido** (`motor_cenario.SINAL_SCORE = -1`, desde 18/11). O sinal negativo apareceu nas duas metades
+   da amostra (composto −0,30 e −0,08 no dia; pilar global −0,41 e −0,19), mas a escolha usou essa mesma amostra.
+   A validação na tela separa os pregões desde 18/11, que são o teste fora da amostra. O arquétipo segue classificado
+   com o score original; os pilares mostram o sinal original.
+5. **Dados pagos da B3:** não assinar por enquanto.
+
+## Para o dono decidir (lista original de 18/11, madrugada)
 
 1. **Expurgo dos dados brutos:** a primeira exportação para Parquet roda na madrugada de 18/11. Quando ela estiver
    conferida, rode `python manutencao_banco.py expurgar` (modo seco) para ver o que sairia. O DELETE de verdade usa

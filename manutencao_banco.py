@@ -56,6 +56,9 @@ DIAS_MANTER = 10
 BACKUPS_MANTER = 15
 
 TABELAS_BRUTAS = ("tryd_fita", "opcoes_cotacoes", "niveis", "eventos", "snapshots", "tryd_saldo")
+# exportadas para Parquet, mas fora do expurgo: snapshots e a fonte de historico de motor_regioes, swing,
+# opcoes_estruturas (RV20), estudo_regioes e consolidar_fechamento (20-60 pregoes); decidido em 18/11/2026
+MANTER_NO_SQLITE = {"snapshots"}
 EXCLUIDAS_BACKUP = set(TABELAS_BRUTAS) | {"macro_cotacoes"}
 
 SCHEMA = """
@@ -517,7 +520,7 @@ def expurgar(db_path, dias_manter=DIAS_MANTER, apagar=False, base=PARQUET_PADRAO
     try:
         tabelas = [r[0] for r in con.execute("SELECT DISTINCT tabela FROM arquivo_frio ORDER BY 1")]
         for tabela in tabelas:
-            if tabela not in ESPEC:
+            if tabela not in ESPEC or tabela in MANTER_NO_SQLITE:
                 continue
             manifesto = {int(r[0]): r[1] for r in con.execute(
                 "SELECT dia, apagado_ms FROM arquivo_frio WHERE tabela=?", (tabela,))}

@@ -376,7 +376,13 @@ class Pecas:
                "postos_5p": _h("5p", "postos"),
                "acerto_35_dia": _h("dia", "acerto"), "acerto_35_seguinte": _h("seguinte", "acerto"),
                "acerto_35_5p": _h("5p", "acerto"),
-               "n_sinal_dia": _h("dia", "n_sinal")}
+               "n_sinal_dia": _h("dia", "n_sinal"),
+               "invertido": mc.SINAL_SCORE < 0, "invertido_desde": _iso(mc.INVERTIDO_DESDE)}
+        fora = (res or {}).get("Score fora da amostra") or {}
+        val["fora"] = {hz: {"n": (fora.get(hz) or {}).get("n") or 0, "postos": (fora.get(hz) or {}).get("postos"),
+                            "acerto": (fora.get(hz) or {}).get("acerto"),
+                            "n_sinal": (fora.get(hz) or {}).get("n_sinal") or 0}
+                       for hz in ("dia", "seguinte", "5p")}
         self.validacao = val
         return val
 

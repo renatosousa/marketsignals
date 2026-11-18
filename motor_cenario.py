@@ -53,6 +53,12 @@ NOMES_PILARES = {"macro_juros": "Macro e juros", "fluxo_cambio": "Fluxo e câmbi
                  "noticias": "Notícias"}
 
 JANELA_ESTRUTURAL = 60
+# Inversao do composto (decisao do dono em 18/11/2026): com os pesos da espec, a correlacao de postos do score das
+# 09:15 com o retorno do WIN foi -0,18 (dia), -0,11 (seguinte) e -0,18 (5 pregoes) em 118 pregoes; negativa nas duas
+# metades (-0,30 e -0,08 no dia), mais forte no pilar global (-0,41 e -0,19). A escolha usou essa mesma amostra, entao
+# so os pregoes a partir de INVERTIDO_DESDE medem a inversao fora da amostra. Pilares seguem com o sinal original.
+SINAL_SCORE = -1.0
+INVERTIDO_DESDE = 20775            # dia_idx de 18/11/2026
 JANELA_TATICA = 20
 MIN_HIST = {"estrutural": 20, "tatico": 10}
 # o VRP usa a vol realizada oficial do BOVA11, que so tem 7 sessoes consolidadas no banco real
@@ -1171,11 +1177,13 @@ def cenario(con, agora_ms):
     fator = _fator_gex(None if gex is None else gex["gex_total"])
     z_est = None if est["z_composto"] is None else est["z_composto"] * fator
     z_tat = None if tat["z_composto"] is None else tat["z_composto"] * fator
-    score_est, score_tat = _score_z(z_est), _score_z(z_tat)
+    bruto_est, bruto_tat = _score_z(z_est), _score_z(z_tat)
+    score_est = None if bruto_est is None else SINAL_SCORE * bruto_est
+    score_tat = None if bruto_tat is None else SINAL_SCORE * bruto_tat
     # risco Brasil: eps acumulado do dia (tatico), em bps
     eps = _f_eps(d, ts, "tatico")
     risco = float(eps["bruto"]) * 100.0 if eps is not None else None
-    arq = _arquetipo(d, ts, score_est, score_tat, gex)
+    arq = _arquetipo(d, ts, bruto_est, bruto_tat, gex)   # o arquetipo descreve o contexto: usa o sinal original
     briefing = _briefing(d, ts, {"score": score_est}, tat, gex, arq, risco)
     pilares = {}
     for chave, p in est["pilares"].items():
@@ -1195,6 +1203,8 @@ def cenario(con, agora_ms):
         "ts_ms": ts,
         "score_estrutural": score_est,
         "score_intraday": score_tat,
+        "sinal_score": SINAL_SCORE,
+        "score_estrutural_bruto": bruto_est,
         "pilares": pilares,
         "fator_gex": fator,
         "gex": None if gex is None else {"valor": gex["gex_total"], "posicao": gex["posicao"],
@@ -1264,7 +1274,9 @@ def historico(con, dias=120):
         gex = _gex(d, ts)
         fator = _fator_gex(None if gex is None else gex["gex_total"])
         z = None if est["z_composto"] is None else est["z_composto"] * fator
-        out.append({"dia": _iso(dia), "ts_ms": ts, "score_estrutural": _score_z(z), "z_composto": z,
+        sc = _score_z(z)
+        out.append({"dia": _iso(dia), "ts_ms": ts, "score_estrutural": None if sc is None else SINAL_SCORE * sc,
+                    "z_composto": z,
                     "fator_gex": fator,
                     "pilares": {k: p["z"] for k, p in est["pilares"].items()}})
     return out
@@ -1330,7 +1342,9 @@ def avaliar(con, dias=120):
     if not linhas:
         print("sem retorno do WIN para cruzar com o score")
         return {"n": 0}
-    grupos = [("Score estrutural", lambda h: h["score_estrutural"], 35.0)]
+    grupos = [("Score estrutural", lambda h: h["score_estrutural"], 35.0),
+              ("Score fora da amostra", lambda h: (h["score_estrutural"] if _dia(h["ts_ms"]) >= INVERTIDO_DESDE
+                                                   else None), 35.0)]
     for chave, nome in NOMES_PILARES.items():
         grupos.append((f"Pilar {nome}", lambda h, k=chave: (None if h["pilares"].get(k) is None
                                                              else _score_z(h["pilares"][k])), 35.0))
@@ -1357,7 +1371,8 @@ def avaliar(con, dias=120):
             ac = "-" if acerto is None else f"{acerto * 100:.0f}% ({len(pares)})"
             print(f"{nome:28}{hz:11}{len(xs):>5}{'-' if sp is None else f'{sp:+.2f}':>9}{ac:>21}")
     print("\npostos = Spearman; acerto = fração de sinais certos entre |score| >= 35 (n entre parênteses).")
-    print("Sem ajuste de pesos: a tabela mostra se os pesos da ESPEC têm sinal nesta amostra.")
+    print("Score com SINAL_SCORE = %+.0f (pilares no sinal original); 'fora da amostra' = pregoes desde %s."
+          % (SINAL_SCORE, _iso(INVERTIDO_DESDE)))
     return res
 
 
