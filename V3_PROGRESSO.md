@@ -25,7 +25,7 @@ um commit no `main`.
 | V3-7 | 2.4 | `motor_cenario.py` (pilares, arquétipo, briefing) | feita (2c75428) |
 | V3-8 | 3.1, 3.2 | `conversor_paridade.py`, `motor_regioes.py`, `gatilhos_execucao.py` | feita (9b2d45a) |
 | V3-9 | 3.3, 3.4 | Estruturas de opções, zonas de swing, `estudo_regioes.py` | feita (2004ad1) |
-| V3-10 | 4 | `atualizador_cockpit.py`, `painel_v3.py`, `v3_cockpit.html` | em andamento |
+| V3-10 | 4 | `atualizador_cockpit.py`, `painel_v3.py`, `v3_cockpit.html` | feita |
 
 ## O que os números mostraram até agora
 

@@ -54,7 +54,8 @@
   // ---------- navegacao comum
   const LINKS = [
     ["Resumo", "/v2"], ["Correlações", "/v2/correlacoes"], ["Fluxo", "/v2/fluxo"],
-    ["Painel atual", "/"], ["Gráfico WIN", "/grafico?ativo=WIN"], ["Gráfico WDO", "/grafico?ativo=WDO"],
+    ["Cockpit v3", "/v3"], ["Painel atual", "/"],
+    ["Gráfico WIN", "/grafico?ativo=WIN"], ["Gráfico WDO", "/grafico?ativo=WDO"],
     ["Players", "/players"], ["Leilões", "/leiloes"],
   ];
   function nav(atual) {

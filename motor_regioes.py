@@ -925,11 +925,12 @@ def _id_zona(lado, k):
     return f"{'R' if lado == 'ACIMA' else 'S'}{k}"
 
 
-def regioes(con, ativo, agora_ms, vies=0.0):
-    """Zonas operacionais do ativo no instante (no maximo 3 acima e 3 abaixo do preco, forca >= 35).
+def regioes_detalhado(con, ativo, agora_ms, vies=0.0):
+    """Zonas do ativo mais o contexto da regua (preco, VWAP do dia, gamma flip e fontes que faltaram).
 
-    Cada zona: id_zona, lado, preco_min, preco_centro, preco_max, forca, componentes, alinhamento,
-    direcao, distancia_pts, distancia_pct, entrada_min/entrada_max, stop, alvo_1, alvo_2, rr.
+    Faz uma unica coleta de niveis, reaproveitada pelo cockpit: pedir `regioes` e `diagnostico`
+    separados custava duas varreduras completas (GEX, perfil composto, Tryd). -> dict com
+    {ativo, preco, vwap_dia, gamma_flip, origem_quantis, faltando, zonas}.
     """
     ativo = normalizar(ativo)
     cfg = ATIVOS[ativo]
@@ -937,12 +938,16 @@ def regioes(con, ativo, agora_ms, vies=0.0):
     cache = {}
     levels, faltando, extras = _coletar(con, ativo, agora_ms, cache)
     preco = extras.get("preco")
+    ctx = dict(ativo=ativo, preco=preco, vwap_dia=extras.get("vwap_dia"),
+               gamma_flip=next((n["preco"] for n in levels if n["fonte"] == "gamma_flip"), None),
+               origem_quantis=extras.get("origem_quantis"), faltando=faltando, zonas=[])
     if not preco or not levels:
-        return []
+        return ctx
     dia = _dia_idx(agora_ms)
     atr_d = atr_diario(con, ativo, dia, cache=cache)
     if not atr_d or atr_d <= 0:
-        return []
+        ctx["faltando"] = faltando + ["ATR diario: sem 2 pregoes fechados com maxima e minima"]
+        return ctx
     delta = DELTA_ATR * atr_d
     perfil = _perfil_dia(con, ativo, dia, fim_ms=agora_ms)
     extras["poc_dia"] = perfil["poc"] if perfil else None
@@ -968,7 +973,18 @@ def regioes(con, ativo, agora_ms, vies=0.0):
                         distancia_pts=float(zona["preco_centro"] - preco),
                         distancia_pct=float((zona["preco_centro"] - preco) / preco * 100),
                         **plano))
-    return out
+    ctx["zonas"] = out
+    ctx["atr15"] = atr15
+    return ctx
+
+
+def regioes(con, ativo, agora_ms, vies=0.0):
+    """Zonas operacionais do ativo no instante (no maximo 3 acima e 3 abaixo do preco, forca >= 35).
+
+    Cada zona: id_zona, lado, preco_min, preco_centro, preco_max, forca, componentes, alinhamento,
+    direcao, distancia_pts, distancia_pct, entrada_min/entrada_max, stop, alvo_1, alvo_2, rr.
+    """
+    return regioes_detalhado(con, ativo, agora_ms, vies)["zonas"]
 
 
 # ------------------------------------------------------------------ gravacao

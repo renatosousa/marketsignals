@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cockpit v3 · Jev-trader</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.min.css">
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+<link rel="stylesheet" href="/estatico/comum.css">
+<link rel="stylesheet" href="/estatico/v3.css">
+</head>
+<body class="v3" data-aba="cenario">
+<header class="topo-v3" id="topo">
+  <div class="topo-linha">
+    <a class="marca" href="/v3">Cockpit v3</a>
+    <span class="saude" id="saude"><span class="ponto" aria-hidden="true"></span><span id="saude-txt">carregando…</span></span>
+    <span class="evento" id="evento">sem evento</span>
+    <span class="atualizado" id="atualizado">–</span>
+  </div>
+  <div class="badges" id="badges"></div>
+  <div class="validacao" id="validacao">carregando…</div>
+  <div class="faixa-erro" id="aviso" hidden></div>
+  <div class="resumo-mobile" id="resumo-mobile"></div>
+</header>
+
+<main>
+  <nav class="abas-mobile" id="abas-mobile" aria-label="Seções do cockpit">
+    <button type="button" data-aba="cenario" aria-pressed="true">Cenário</button>
+    <button type="button" data-aba="regua" aria-pressed="false">Régua</button>
+    <button type="button" data-aba="opcoes" aria-pressed="false">Opções e swing</button>
+    <a id="aba-grafico" href="/grafico?ativo=WIN">Gráfico</a>
+  </nav>
+  <div class="erro" id="erro" role="status" aria-live="polite"></div>
+
+  <div class="grade-v3">
+    <section class="coluna col-esq" data-painel="cenario" id="painel-cenario">
+      <p class="validacao" id="validacao-mobile"></p>
+      <div class="card">
+        <div class="card-top"><h3>Briefing do dia</h3><span class="unid" style="margin:0">regra do motor de cenário</span></div>
+        <ul class="briefing" id="briefing"><li>carregando…</li></ul>
+      </div>
+
+      <div class="card">
+        <div class="card-top"><h3>Cinco pilares</h3><span class="unid" style="margin:0">−100 a +100</span></div>
+        <div class="pilares" id="pilares"><div class="vazio">carregando…</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-top"><h3>Abertura justa</h3><span class="unid" style="margin:0">gap previsto × real</span></div>
+        <div class="duplas" id="abertura"><div class="vazio">carregando…</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-top"><h3>Risco Brasil</h3><span class="unid" style="margin:0">ε_BR idiossincrático</span></div>
+        <div class="duplas" id="risco"><div class="vazio">carregando…</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-top"><h3>Mundo agora</h3><span class="unid" style="margin:0">desde 18:00 de D-1</span></div>
+        <div id="global"><div class="vazio">carregando…</div></div>
+      </div>
+    </section>
+
+    <section class="coluna col-centro" data-painel="regua" id="painel-regua">
+      <div class="card regua-card">
+        <div class="card-top">
+          <h3>Régua tática</h3>
+          <div class="ativos" id="sel-ativo" role="group" aria-label="Ativo da régua">
+            <button type="button" data-ativo="WIN$" aria-pressed="true">WIN$</button>
+            <button type="button" data-ativo="WDO$" aria-pressed="false">WDO$</button>
+            <button type="button" data-ativo="BOVA11" aria-pressed="false">BOVA11</button>
+          </div>
+        </div>
+        <div class="regua-sub" id="regua-sub">carregando…</div>
+        <div class="regua-v3" id="regua"><div class="vazio">carregando…</div></div>
+        <div class="detalhe-zona" id="detalhe-zona" hidden></div>
+        <p class="nota-estudo" id="nota-estudo"></p>
+      </div>
+
+      <div class="card">
+        <div class="card-top"><h3>Faixas do dia</h3><span class="unid" style="margin:0">quantis conformalizados do WIN</span></div>
+        <div id="quantis"><div class="vazio">carregando…</div></div>
+      </div>
+    </section>
+
+    <section class="coluna col-dir" data-painel="opcoes" id="painel-opcoes">
+      <div class="card">
+        <div class="abas-dir" id="abas-dir" role="group" aria-label="Playbooks">
+          <button type="button" data-aba-dir="opcoes" aria-pressed="true">Opções</button>
+          <button type="button" data-aba-dir="swing" aria-pressed="false">Swing</button>
+          <button type="button" data-aba-dir="corr" aria-pressed="false">Correlações e players</button>
+        </div>
+        <div id="painel-opcoes-conteudo"><div class="vazio">carregando…</div></div>
+        <div id="painel-swing-conteudo" hidden></div>
+        <div id="painel-corr-conteudo" hidden></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="/estatico/comum.js"></script>
+<script src="/estatico/v3.js"></script>
+</body>
+</html>

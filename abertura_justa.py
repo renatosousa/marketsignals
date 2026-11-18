@@ -345,6 +345,7 @@ def prever_hoje(con, agora_ms):
         pred, coef = _ajustar(treino, x, FEATURES_MODELO)
         sigma = None
         preds = _walk_forward(rows)
+        met = _metricas(rows, preds)          # qualidade fora da amostra do mesmo walk-forward
         residuos = [r["abertura"] - p["prevista"] for r, p in zip(rows, preds)
                     if p["pred"] is not None and p["prevista"] is not None]
         if len(residuos) >= 10:
@@ -360,6 +361,8 @@ def prever_hoje(con, agora_ms):
             "dia_idx": dia, "ativo": ativo, "gap_previsto": pred, "sigma_erro": sigma,
             "abertura_prevista": prevista, "fechamento_anterior": fechamento,
             "coef_json": json.dumps(coef, ensure_ascii=False), "faltantes": faltantes,
+            "r2": met["r2"], "mae_pts": met["mae_pts"], "acerto_sinal": met["acerto_sinal"],
+            "n_metricas": met["n"],
         }
     return saida
 

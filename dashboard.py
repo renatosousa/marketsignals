@@ -21,7 +21,14 @@ GET /api/grafico?tf=1|5|15[&ativo=WIN|WDO][&dia=AAAA-MM-DD] -> velas e indicador
 Painel novo (v2, painel_v2.py; ESPEC_DASHBOARD.md secao 10): as paginas ficam em v2_resumo.html,
 v2_correlacoes.html e v2_fluxo.html (etapa D; enquanto nao existirem, a rota devolve 404).
 GET /v2, /v2/correlacoes, /v2/fluxo      -> paginas do painel novo (lidas do disco a cada pedido).
-GET /estatico/<nome>                     -> estatico/comum.css e estatico/comum.js (lista fixa no codigo).
+Cockpit v3 (ESPEC_V3.md secoes 7 e 8.2): o estado consolidado e pre-calculado por
+atualizador_cockpit.py e lido por painel_v3.py; as rotas nao recalculam nada.
+GET /v3                                   -> cockpit v3 (v3_cockpit.html).
+GET /api/v3/cockpit                       -> JSON de estado + idade_s/desatualizado (cache 2 s).
+GET /api/v3/regioes?ativo=WIN$|WDO$|BOVA11&horizonte=DAYTRADE|SWING -> zonas e gatilho do ativo.
+GET /api/v3/opcoes_estruturas?ativo=BOVA11 -> superficie e estruturas de opcoes.
+GET /api/v3/saude                         -> monitor_saude.saude_api (mesmo payload do /api/saude, cache 15 s).
+GET /estatico/<nome>                     -> estatico/comum.css, comum.js, v3.css e v3.js (lista fixa no codigo).
 GET /api/resumo                          -> coleta, regime, decomposicao, pares principais, vol e alertas (cache 5 s).
 GET /api/correlacoes?janela=3600|10800|pregao&alvo=WIN|WDO
                                           -> tabela com referencia, movel, matriz e decomposicao (cache 30 s).
@@ -53,6 +60,7 @@ import leiloes
 import monitor_saude
 import opcoes_manual as om
 import painel_v2
+import painel_v3
 import players
 import wyckoff
 
@@ -61,9 +69,11 @@ PONTOS = 600            # pontos por serie temporal (define o tamanho do balde)
 CACHE_S = 3.0
 CACHE_PLAYERS_S = 10.0  # o saldo do Tryd muda a cada 10 s
 CACHE_LEILOES_S = 30.0  # o resultado sai uma vez por dia; o calculo (pandas sobre 20 mil linhas) nao precisa rodar a cada pedido
-CACHE_V2_S = {"resumo": 5.0, "correlacoes": 30.0, "fluxo": 30.0, "fechamento": 60.0, "saude": 15.0}
+CACHE_V2_S = {"resumo": 5.0, "correlacoes": 30.0, "fluxo": 30.0, "fechamento": 60.0, "saude": 15.0,
+              "cockpit_v3": 2.0, "regioes_v3": 2.0, "opcoes_v3": 2.0}
 INICIO_PREGAO_H = 9
-ESTATICOS = {"comum.css": "text/css; charset=utf-8", "comum.js": "application/javascript; charset=utf-8"}
+ESTATICOS = {"comum.css": "text/css; charset=utf-8", "comum.js": "application/javascript; charset=utf-8",
+             "v3.css": "text/css; charset=utf-8", "v3.js": "application/javascript; charset=utf-8"}
 
 # macro: graficos de variacao % (no maximo 4 series cada) e ativos da tabela de correlacao
 MACRO_GRAFICOS = {
@@ -405,16 +415,18 @@ class App:
         self.lock_v2 = threading.Lock()       # endpoints do painel novo (/api/resumo, /api/correlacoes, ...)
         self.graf = gq.Grafico()
 
-    def v2(self, nome, chave, calculo):
+    def v2(self, nome, chave, calculo, limpar=True):
         """JSON dos endpoints do painel novo (painel_v2.py), com cache proprio: `nome` decide o tempo
-        (CACHE_V2_S) e `calculo` recebe a conexao somente leitura."""
+        (CACHE_V2_S) e `calculo` recebe a conexao somente leitura. `limpar=False` pula o json_limpo
+        recursivo (o estado do cockpit v3 ja vem limpo do atualizador e o payload e maior)."""
         with self.lock_v2:
             hit = self.cache.get(chave)
             if hit and time.time() - hit[0] < CACHE_V2_S[nome]:
                 return hit[1]
             con = sqlite3.connect(f"file:{self.db}?mode=ro", uri=True, timeout=10)
             try:
-                corpo = json.dumps(json_limpo(calculo(con)), ensure_ascii=False).encode()
+                corpo = json.dumps(json_limpo(calculo(con)) if limpar else calculo(con),
+                                   ensure_ascii=False).encode()
             finally:
                 con.close()
             self.cache[chave] = (time.time(), corpo)
@@ -792,6 +804,8 @@ def main():
     app = App(Path(args.db).resolve())
 
     class H(BaseHTTPRequestHandler):
+        disable_nagle_algorithm = True   # sem isso o TCP segura o corpo ~15 ms (Nagle + ACK atrasado)
+
         def log_message(self, *a):
             pass
 
@@ -852,6 +866,55 @@ def main():
                     self.enviar(200, (AQUI / arq).read_bytes(), "text/html; charset=utf-8")
                 except FileNotFoundError:
                     self.enviar(404, b"nao encontrado", "text/plain")
+            elif u.path == "/v3":
+                try:
+                    self.enviar(200, (AQUI / "v3_cockpit.html").read_bytes(), "text/html; charset=utf-8")
+                except FileNotFoundError:
+                    self.enviar(404, b"nao encontrado", "text/plain")
+            elif u.path == "/api/v3/cockpit":
+                try:
+                    self.enviar(200, app.v2("cockpit_v3", ("v3", "cockpit"),
+                                            lambda con: painel_v3.cockpit(con), limpar=False),
+                                "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
+            elif u.path == "/api/v3/regioes":
+                q = parse_qs(u.query)
+                try:
+                    ativo = painel_v3.normalizar_ativo(q.get("ativo", ["WIN$"])[0])
+                    horizonte = painel_v3.normalizar_horizonte(q.get("horizonte", ["DAYTRADE"])[0])
+                except ValueError:
+                    return self.enviar(400, b'{"erro":"ativo (WIN$|WDO$|BOVA11) ou horizonte '
+                                            b'(DAYTRADE|SWING) invalido"}', "application/json")
+                try:
+                    self.enviar(200, app.v2("regioes_v3", ("v3", "regioes", ativo, horizonte),
+                                            lambda con: painel_v3.regioes(con, ativo, horizonte),
+                                            limpar=False),
+                                "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
+            elif u.path == "/api/v3/opcoes_estruturas":
+                ativo = parse_qs(u.query).get("ativo", ["BOVA11"])[0]
+                if str(ativo).upper() != "BOVA11":
+                    return self.enviar(400, b'{"erro":"ativo invalido (BOVA11)"}', "application/json")
+                try:
+                    self.enviar(200, app.v2("opcoes_v3", ("v3", "opcoes", "BOVA11"),
+                                            lambda con: painel_v3.opcoes_estruturas(con, "BOVA11"),
+                                            limpar=False),
+                                "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
+            elif u.path == "/api/v3/saude":
+                try:
+                    self.enviar(200, app.v2("saude", ("v2", "saude"),
+                                            lambda con: monitor_saude.saude_api(con)),
+                                "application/json; charset=utf-8")
+                except Exception as e:
+                    self.enviar(500, json.dumps({"erro": f"{e.__class__.__name__}: {e}"}).encode(),
+                                "application/json")
             elif u.path.startswith("/estatico/"):
                 nome = u.path[len("/estatico/"):]
                 if nome not in ESTATICOS:  # so os nomes da lista fixa: nada de caminho vindo do pedido

@@ -40,6 +40,9 @@ $coletas = [ordered]@{
     # noticias (RSS BR, BCB, Fed, Finnhub, GDELT) + sentimento FinBERT local; ver coletor_noticias.py
     # desativado de 20/10 a 18/11/2026 (faltavam feedparser/transformers/FinBERT); religado na v3 com torch CPU (2 threads)
     'NOTICIAS'      = @('NOTICIAS', '--db', 'dados/book.db', '--script', 'coletor_noticias.py', '--inicio', '06:00', '--fim', '23:30')
+    # v3: estado consolidado do cockpit /v3 (estado_cockpit_v3, cenario_scores, regioes_operacionais); ciclo de 5 s no
+    # pregao, 60 s no pre-mercado; valida o score do cenario na partida e depois das 18:00 (atualizador_cockpit.py)
+    'COCKPIT'       = @('COCKPIT', '--db', 'dados/book.db', '--script', 'atualizador_cockpit.py', '--inicio', '07:00', '--fim', '18:40')
 }
 
 $rodando = Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
