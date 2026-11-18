@@ -170,9 +170,12 @@ def perfil(s, passo):
     """Volume agredido por faixa de preco (compra/venda), POC e area de valor (expande para o vizinho maior)."""
     if s.empty or (s.vc + s.vv).sum() <= 0:
         return None
-    p = (s["last"] / passo).round() * passo
-    g = s.groupby(p).agg(vc=("vc", "sum"), vv=("vv", "sum"))
-    g = g.reindex(np.arange(g.index.min(), g.index.max() + passo / 2, passo), fill_value=0.0)
+    # faixas inteiras: com passo fracionario (0,01 do BOVA11, 0,005 do DI) a grade em float nao casava com as chaves
+    i = (s["last"] / passo).round().astype("int64")
+    g = s.groupby(i).agg(vc=("vc", "sum"), vv=("vv", "sum"))
+    g = g.reindex(np.arange(g.index.min(), g.index.max() + 1), fill_value=0.0)
+    casas = max(0, -int(np.floor(np.log10(passo))) + 1)
+    g.index = np.round(g.index.to_numpy() * passo, casas)
     vol = (g.vc + g.vv).to_numpy()
     k = int(vol.argmax())
     e = dd = k

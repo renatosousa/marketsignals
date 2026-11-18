@@ -1,6 +1,6 @@
 # Jev-trader v3: progresso da implementação
 
-Especificação: [ESPEC_V3.md](ESPEC_V3.md). Implementação delegada ao opencode (`opencode/deepseek-v4.1-flash-free`) e
+Especificação: [ESPEC_V3.md](ESPEC_V3.md). Implementação delegada ao opencode (DeepSeek v4.1 flash, grátis e depois pelo plano Go) e
 validada pelo Claude: código lido, suíte de testes rodada e números conferidos contra o banco. Cada tarefa validada vira
 um commit no `main`.
 
@@ -22,10 +22,10 @@ um commit no `main`.
 | V3-4 | 1.5 | Notícias, Focus e leilões de volta | feita (f29bf79) |
 | V3-5 | 2.1, 2.2 | `coletor_global.py`, `abertura_justa.py`, ε_BR, `calendario_macro.py` | feita (13a8891) |
 | V3-6 | 2.3 | `nowcast_fluxo_v2.py`, `modelo_regime_v3.py` (CQR), `correlacoes_v3.py` | feita (9ad5ec6) |
-| V3-7 | 2.4 | `motor_cenario.py` (pilares, arquétipo, briefing) | em andamento |
-| V3-8 | 3.1, 3.2 | `conversor_paridade.py`, `motor_regioes.py`, `gatilhos_execucao.py` | em andamento |
-| V3-9 | 3.3, 3.4 | Estruturas de opções, zonas de swing, `estudo_regioes.py` | a fazer |
-| V3-10 | 4 | `atualizador_cockpit.py`, `painel_v3.py`, `v3_cockpit.html` | a fazer |
+| V3-7 | 2.4 | `motor_cenario.py` (pilares, arquétipo, briefing) | feita (2c75428) |
+| V3-8 | 3.1, 3.2 | `conversor_paridade.py`, `motor_regioes.py`, `gatilhos_execucao.py` | feita (9b2d45a) |
+| V3-9 | 3.3, 3.4 | Estruturas de opções, zonas de swing, `estudo_regioes.py` | feita (2004ad1) |
+| V3-10 | 4 | `atualizador_cockpit.py`, `painel_v3.py`, `v3_cockpit.html` | em andamento |
 
 ## O que os números mostraram até agora
 
@@ -38,6 +38,9 @@ um commit no `main`.
 | Nowcast do estrangeiro v2 | sinal 28/45; regra do dia anterior 33/46 | ainda não bate a regra simples |
 | Tryd com correção EWMA do viés | 8/9 no sinal, viés +515 → −98 | promissor, mas com 9 dias |
 | Saldo reconstruído pela fita | forma: correlação 0,8 a 0,9 em BTG, Estrangeiro, Institucional e Liquidez; nível muito errado (XP −71,7 mil × −2,6 mil) | serve como forma, não como número |
+| Score do `motor_cenario` (pesos da espec, sem ajuste) | correlação de postos com o retorno: −0,18 (dia), −0,11 (seguinte), −0,18 (5 pregões), 120 pregões; acerto 32 a 40% com \|score\| ≥ 35 | sem sinal direcional; o cockpit mostra isso abaixo dos badges |
+| Zonas do `motor_regioes` (`estudo_regioes`, 37 pregões, 24/09 a 17/11) | zonas de força ≥ 60 contra nível aleatório de mesma distância: −330 a −359 pts (15 a 60 min); só o balde ALVO/NEUTRA bateu o aleatório (+531 em 80+/30 min) | heurística não validada; amostra curta e só 9 gatilhos confirmados |
+| Primeira manutenção (18/11) | 12 pregões agregados na fita de 1 min; 113 tabelas de dia exportadas (613 MB de Parquet contra ~9 GB no SQLite); backup do núcleo 118 MB | Parquet conferido por checksum |
 
 ## Bloqueios encontrados
 
@@ -52,6 +55,14 @@ um commit no `main`.
   5 h de uso. Agora rodam no máximo duas tarefas ao mesmo tempo.
 - **Fechamento de futuros:** o último preço do pregão contínuo vai até 18:30, porque WIN, WDO e DI não têm leilão de
   fechamento. A espec sugeria 17:55.
+- **Abertura justa:** a regressão completa da espec (11 variáveis, 60 pregões) teve R² negativo fora da amostra. Ficou
+  ES + cesta EM com janela de 120 e desvio robusto (MAD), porque o gap de 05/10 inflava o desvio-padrão.
+- **Regime v3:** o modelo B (com mais features) supercobre as faixas com 35 pregões; ficou o modelo A, calibrado em 60.
+- **Zonas de confluência:** a ligação simples encadeava 15 níveis numa zona de 2.200 pts no WIN; troquei por
+  agrupamento guloso por densidade com largura máxima de 2 deltas.
+- **Perfil de volume com passo fracionário:** `grafico_quant.perfil` montava a grade em float e perdia ~98% do volume
+  no BOVA11 (passo 0,01) e no DI (0,005). Agora agrupa por faixas inteiras.
+- **Backup do núcleo:** copia só as tabelas do núcleo (ATTACH só leitura + INSERT SELECT), em vez dos 15,8 GB.
 - **Leilões:** a fonte alternativa ao SISWEB (que dá erro 500 desde 05/11) é a API pública do Tesouro
   `apiapex.tesouro.gov.br/aria/v1/api-leiloes-pub/custom/resultados?dataleilao=DD/MM/AAAA`.
 
@@ -67,3 +78,9 @@ um commit no `main`.
    `vigiar_dashboard.ps1` religa em até 60 s.
 3. **Janelas de saldo do Tryd:** continuam sem exportar desde 13/11. Reabra as 7 com DDE e as colunas Agr.
 4. **Copom de 08-09/12/2026** em `dados/calendario_manual.csv`: confira a data (marcada "confirmar").
+5. **Score do cenário sem sinal:** com os pesos da espec, a correlação com o retorno é levemente negativa (−0,11 a
+   −0,18). Opções: manter como contexto (atual), ajustar os pesos por walk-forward (risco de sobreajuste com 120
+   pregões) ou inverter o pilar que puxa contra. Minha sugestão: manter e reavaliar com 250 pregões.
+6. **Nowcast do estrangeiro v2** não bate a regra do dia anterior (28/45 × 33/46). O painel continua mostrando os dois.
+7. **Saldo do Tryd pela fita:** a forma acompanha, o nível não. Sem as janelas de saldo, o /players usa a fita e avisa.
+8. **Posição em futuros por investidor:** só nos produtos pagos da B3 (UP2DATA, DataWise+). Assinar ou seguir sem.
