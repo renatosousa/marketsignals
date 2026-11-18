@@ -10,7 +10,7 @@ entao o fluxo e um PROXY: negocio detectado quando o ultimo preco/volume muda en
 leituras; agressor = compra se saiu no ask (ou acima), venda se saiu no bid (ou abaixo). Varios
 negocios entre duas leituras contam como um.
 
-Vol implicita: Black-Scholes, mid do book, prazo em dias uteis/252 (feriados ignorados),
+Vol implicita: Black-Scholes, mid do book, prazo em dias uteis/252 (feriados da ANBIMA, calendario_b3.py),
 taxa = Selic meta do BCB (ou --taxa). O subjacente de cada vencimento e o spot implicito pela
 paridade put-call (coluna spot em opcoes_cotacoes), para o skew nao herdar erro de carrego.
 
@@ -30,13 +30,13 @@ import math
 import sqlite3
 import time
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import MetaTrader5 as mt5
 import terminal_mt5
-import numpy as np
 
 import banco
+import calendario_b3 as cal
 from conexao import Guarda, janela_de
 from relogio import Relogio
 
@@ -112,13 +112,12 @@ def taxa_selic(padrao):
 
 
 def prazo_anos(agora, venc):
-    """Dias uteis ate o fim do pregao do vencimento / 252. Conta a fracao restante de hoje."""
+    """Dias uteis (calendario ANBIMA) ate o fim do pregao do vencimento / 252. Conta a fracao restante de hoje."""
     h = agora.hour + agora.minute / 60
     frac_hoje = min(max((HORA_FECHAMENTO - h) / (HORA_FECHAMENTO - HORA_ABERTURA), 0.0), 1.0)
-    if agora.weekday() >= 5:
+    if not cal.eh_pregao(agora.date()):
         frac_hoje = 0.0
-    hoje = agora.date()
-    dias = int(np.busday_count(hoje + timedelta(days=1), venc + timedelta(days=1))) if venc > hoje else 0
+    dias = cal.du_ate_vencimento(agora.date(), venc)
     return (frac_hoje + dias) / 252
 
 

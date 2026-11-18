@@ -163,7 +163,7 @@ class TestPrevisto(unittest.TestCase):
     def test_dois_pregoes_uteis_com_feriado_e_virada_de_ano(self):
         self.assertEqual(et._data_prevista("2026-11-12"), "2026-11-16")  # qui -> seg (fim de semana)
         self.assertEqual(et._data_prevista("2026-11-18"), "2026-11-23")  # 20/11 e feriado (leiloes.feriados)
-        self.assertEqual(et._data_prevista("2026-12-30"), "2027-01-04")  # 01/01 feriado + fim de semana
+        self.assertEqual(et._data_prevista("2026-12-30"), "2027-01-05")  # 31/12 a B3 nao abre, 01/01 feriado
 
 
 class TestAtualizar(unittest.TestCase):

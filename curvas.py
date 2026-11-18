@@ -1,8 +1,8 @@
 """Juros: vencimentos de DI1/DAP pelo codigo, interpolacao da curva DI e inflacao implicita (breakeven).
 
-Taxas em % a.a., base 252 dias uteis (convencao da B3 para DI1 e DAP). Dias uteis sem o calendario de
-feriados (np.busday_count, como no resto do projeto): o erro e de 1-3 du em prazos de anos e quase se
-cancela na razao (1+DI)/(1+DAP), pois os dois lados usam a mesma contagem.
+Taxas em % a.a., base 252 dias uteis (convencao da B3 para DI1 e DAP). Dias uteis com o calendario de
+feriados nacionais da ANBIMA (calendario_b3.du): o erro de antes (sem feriados) era de 1-3 du em prazos de
+anos e quase se cancelava na razao (1+DI)/(1+DAP), pois os dois lados usam a mesma contagem.
 
   breakeven = ((1 + DI(du)) / (1 + DAP(du)) - 1) * 100     DI interpolado no vencimento do DAP
   DI(du): flat-forward entre os vertices (log do fator (1+r)^(du/252) linear em du), padrao B3/ANBIMA.
@@ -10,7 +10,7 @@ cancela na razao (1+DI)/(1+DAP), pois os dois lados usam a mesma contagem.
 import math
 from datetime import date, timedelta
 
-import numpy as np
+import calendario_b3
 
 MESES = {c: i + 1 for i, c in enumerate("FGHJKMNQUVXZ")}
 
@@ -35,7 +35,8 @@ def vencimento(symbol):
 
 
 def du(d0, d1):
-    return int(np.busday_count(d0, d1))
+    """Dias uteis ANBIMA de d0 (inclusive) a d1 (exclusive), com feriados (calendario_b3.du)."""
+    return calendario_b3.du(d0, d1)
 
 
 def interp_flat_forward(prazos, taxas, alvo):

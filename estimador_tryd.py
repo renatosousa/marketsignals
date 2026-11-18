@@ -23,9 +23,9 @@ import numpy as np
 import pandas as pd
 
 import banco
+import calendario_b3
 import players
 import relogio
-from leiloes import feriados
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS tryd_estrangeiro_dia (
     data TEXT NOT NULL, ativo TEXT NOT NULL,
@@ -72,15 +72,9 @@ def _corr(a, b):
 
 
 def _data_prevista(data, n_pregoes=2):
-    """Data AAAA-MM-DD + `n_pregoes` pregoes: proximos dias uteis, sem os feriados nacionais de leiloes.feriados."""
-    d, fer, faltam = date.fromisoformat(data), {}, n_pregoes
-    while faltam:
-        d += timedelta(days=1)
-        if d.year not in fer:
-            fer[d.year] = feriados(d.year)
-        if d.weekday() < 5 and d not in fer[d.year]:
-            faltam -= 1
-    return d.isoformat()
+    """Data AAAA-MM-DD + `n_pregoes` pregoes (calendario_b3.somar_pregoes): pula fins de semana, feriados
+    nacionais e 24/12 e 31/12, em que a B3 nao abre (20/11/2026: 18/11 + 2 = 23/11, nao 20/11)."""
+    return calendario_b3.somar_pregoes(date.fromisoformat(data), n_pregoes).isoformat()
 
 
 def ultima_foto_por_corretora(con, ativo, dia):

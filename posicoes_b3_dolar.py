@@ -9,7 +9,7 @@ Mesmo portal e mesma paginacao do posicoes_b3_csv.py (BDI, dados de D-1, endpoin
                                  negocio), ultimo negocio e o ajuste dos futuros de dolar de cada vencimento.
 
 IV/delta: Black (1976) sobre o ajuste do futuro DOL do mesmo vencimento (F), taxa = Selic meta (continua), prazo =
-dias uteis depois do pregao ate o vencimento / 252 (feriados ignorados, como no resto do projeto). Black e o
+dias uteis depois do pregao ate o vencimento / 252 (feriados da ANBIMA, calendario_b3.py). Black e o
 Black-Scholes com spot F.e^-rT, entao reusa iv_delta do posicoes_b3_csv.
 fator = F do vencimento / F do futuro mais negociado (o que o WDO$ acompanha): converte o spot ao vivo do WDO$ no
 forward de cada vencimento para o GEX do grafico.
@@ -29,12 +29,13 @@ import math
 import sqlite3
 import sys
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
 
 import banco
+import calendario_b3 as cal
 import posicoes_b3_csv as pb
 
 AQUI = pb.AQUI
@@ -103,7 +104,7 @@ def montar(sessao, r):
             if tipo is None or not k or not qtd or qtd <= 0:
                 continue
             f = f_venc.get(venc)
-            du = int(np.busday_count(sessao + timedelta(days=1), date.fromisoformat(venc)))
+            du = cal.du_ate_vencimento(sessao, date.fromisoformat(venc))
             t = max(du, 1) / 252
             iv = de = None
             if f and s.ref and s.ref > 0:

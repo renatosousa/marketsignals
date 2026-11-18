@@ -455,10 +455,11 @@ terços. O coletor está desligado desde 20/10, então a amostra continua insufi
 - **Fontes paradas:** Focus (23/10), leilões (05/11), notícias (20/10).
 - **Endpoints da B3 não documentados**, que podem mudar sem aviso.
 - **Barras do MT5 não ajustadas por proventos** e lista de ações com viés de sobrevivência nos estudos de ações.
-- **Fechamento no `/api/fechamento` em 17/11:**
-  - as seções de IND, faixas, DIs e players vieram vazias;
-  - a "anterior" do WIN e do WDO coincidiu com a abertura;
-  - possível defeito na referência de fechamento anterior, a investigar.
+- **Abertura no `/api/fechamento` (diagnosticado em 18/11):**
+  - no dia corrente, a abertura do WDO$ saía da primeira cotação do dia, mesmo antes do pregão. Em 17/11 foi 5.799,5,
+    das 08:55, que repetia o fechamento de 16/11; a primeira cotação do pregão foi 5.792,75;
+  - no WIN, abertura igual à anterior (171.000) era real.
+  - Uma versão anterior deste texto dizia que as seções vinham vazias: era erro de leitura das chaves do JSON.
 
 ### 9.2 Método
 

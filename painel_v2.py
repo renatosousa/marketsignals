@@ -14,22 +14,24 @@ ultima coleta. Textos que vao para a tela usam acento e virgula decimal; o resto
 """
 import math
 import sqlite3
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 import numpy as np
 import pandas as pd
 
+import calendario_b3 as cal
 import correlacoes as corr
 import estimador_tryd as et
 import players
 from backfill_barras import MT5_ATIVOS
-from leiloes import feriados
 
 D = 86_400_000
 JANELAS = ("3600", "10800", "pregao")
 ALVOS = {"WIN": "WIN$", "WDO": "WDO$"}
 INICIO_PREGAO_MIN = 9 * 60            # 09:00: inicio da coleta
 FIM_PREGAO_MIN = 18 * 60 + 25        # 18:25: fim do pregao
+# sessao usada para os precos do fechamento: futuros ate 18:30, acoes/ETFs ate 17:00 (leilao de fechamento incluso)
+SESSAO_PRECOS = {"futuros": (9 * 60, 18 * 60 + 30), "acoes": (10 * 60, 17 * 60)}
 # ultima barra de 1 min esperada no fim do pregao (ts de abertura, minuto do dia), com folga: a barra final
 # vista no banco e WIN$ 18:24 e WDO$ 18:29; o DI encerra as 18:00 e a ultima barra dele varia de 17:53 a 17:59
 FIM_BARRAS_MIN = {"WIN$": 18 * 60 + 20, "WDO$": 18 * 60 + 25}
@@ -83,16 +85,13 @@ def _num_br(v, nd=2):
 
 
 def _eh_pregao(d):
-    """True em dia util (seg-sex) que nao e feriado nacional."""
-    return d.weekday() < 5 and d not in feriados(d.year)
+    """True em pregao: dia util ANBIMA com sessao na B3 (calendario_b3.eh_pregao)."""
+    return cal.eh_pregao(d)
 
 
 def _pregao_anterior(d, n=1):
-    """O n-esimo pregao util anterior a datetime.date d."""
-    while n > 0:
-        d -= timedelta(days=1)
-        n -= _eh_pregao(d)
-    return d
+    """O n-esimo pregao anterior a datetime.date d."""
+    return cal.somar_pregoes(d, -n)
 
 
 def janela_minutos(t1, janela):
@@ -402,8 +401,8 @@ def _fonte(nome, ultimo, idade_s, estado, detalhe=None):
 
 def coleta(con, agora_ms):
     """Estado das fontes de dados (ESPEC 6.1): uma entrada por fonte com o ultimo dado e o estado
-    ("ok", "atrasado", "parado", "fora do horario" ou "sem dados"). Pregao = dia util (sem os feriados de
-    leiloes.feriados) das 09:00 as 18:25; cada fonte so cobra dentro do seu horario; fonte parada = sem
+    ("ok", "atrasado", "parado", "fora do horario" ou "sem dados"). Pregao = calendario_b3.eh_pregao das
+    09:00 as 18:25; cada fonte so cobra dentro do seu horario; fonte parada = sem
     leitura a mais de 6x o limite de atraso (o WIN: 6 x 30 s = 180 s). -> {"fontes": [...], "em_dia": N,
     "total": M, "pior": "ok"|"atrasado"|"parado"}."""
     from dashboard import parado_ha      # import local: o dashboard importa este modulo
@@ -711,26 +710,38 @@ FAIXAS_WIN = (("09-10", 9 * 60, 10 * 60), ("10-13", 10 * 60, 13 * 60),
               ("13-16", 13 * 60, 16 * 60), ("16-fim", 16 * 60, None))
 
 
+def _sessao_precos(simbolo):
+    """(min_ini, min_fim) da sessao de negociacao para os precos de fechamento: futuros 09:00-18:30
+    (WIN$, WDO$, IND$, DI1*, DAP*); acoes e ETFs 10:00-17:00."""
+    if simbolo.endswith("$") or simbolo.startswith(("DI1", "DAP")):
+        return SESSAO_PRECOS["futuros"]
+    return SESSAO_PRECOS["acoes"]
+
+
 def _precos_dia(con, simbolo, dia):
-    """Precos de `simbolo` no dia: barras de 1 min quando o simbolo tiver barras (abertura = open da
-    primeira, minima/maxima das barras, ultimo = close da ultima), senao mids (snapshots de WIN$ e BOVA11
-    com spread > 0; macro_cotacoes para os demais). -> {"por_min", "abertura", "minima", "maxima",
-    "ultimo"} ou None sem dados no dia."""
+    """Precos de `simbolo` no dia, so dentro da sessao do simbolo (ver _sessao_precos: linhas de
+    pre-abertura, como a primeira cotacao das 08:55 que repete o fechamento de ontem, ficam de fora).
+    Barras de 1 min quando o simbolo tiver barras (abertura = open da primeira, minima/maxima das barras,
+    ultimo = close da ultima), senao mids (snapshots de WIN$ e BOVA11 com spread > 0; macro_cotacoes para
+    os demais). -> {"por_min", "abertura", "minima", "maxima", "ultimo"} ou None sem dados na sessao."""
     lo, hi = dia * D, (dia + 1) * D
+    min_ini, min_fim = _sessao_precos(simbolo)
+    dentro = lambda ts: min_ini <= (ts % D) // 60_000 <= min_fim
     if _existe(con, "barras_1m"):
-        rows = con.execute("SELECT ts_ms, open, high, low, close FROM barras_1m WHERE symbol=? AND ts_ms>=? "
-                           "AND ts_ms<? AND close IS NOT NULL ORDER BY ts_ms", (simbolo, lo, hi)).fetchall()
+        rows = [r for r in con.execute("SELECT ts_ms, open, high, low, close FROM barras_1m WHERE symbol=? AND "
+                                       "ts_ms>=? AND ts_ms<? AND close IS NOT NULL ORDER BY ts_ms",
+                                       (simbolo, lo, hi)) if dentro(r[0])]
         if rows:
             return {"por_min": {ts % D // 60_000: c for ts, _o, _h, _l, c in rows},
                     "abertura": rows[0][1],
                     "minima": min((r[3] for r in rows if r[3] is not None), default=None),
                     "maxima": max((r[2] for r in rows if r[2] is not None), default=None),
                     "ultimo": rows[-1][4]}
-    sql = ("SELECT ts_ms, mid FROM snapshots WHERE symbol=? AND spread>0 AND ts_ms>=? AND ts_ms<?"
+    sql = ("SELECT ts_ms, mid FROM snapshots WHERE symbol=? AND spread>0 AND ts_ms>=? AND ts_ms<? ORDER BY ts_ms"
            if simbolo in ("WIN$", "BOVA11") else
-           "SELECT ts_ms, mid FROM macro_cotacoes WHERE symbol=? AND ts_ms>=? AND ts_ms<?")
+           "SELECT ts_ms, mid FROM macro_cotacoes WHERE symbol=? AND ts_ms>=? AND ts_ms<? ORDER BY ts_ms")
     try:
-        rows = [(ts, m) for ts, m in con.execute(sql, (simbolo, lo, hi)) if m is not None]
+        rows = [(ts, m) for ts, m in con.execute(sql, (simbolo, lo, hi)) if m is not None and dentro(ts)]
     except sqlite3.OperationalError:
         return None
     if not rows:
@@ -749,14 +760,32 @@ def _anterior(con, simbolo, dia, fn):
     return None
 
 
+def _anterior_consolidado(con, simbolo, dia):
+    """`ultimo_liquido` de fechamento_diario no pregao anterior (consolidar_fechamento.py) ou None se a
+    tabela/o dia ainda nao existem."""
+    if not _existe(con, "fechamento_diario"):
+        return None
+    d_ant = cal.pregao_anterior(date.fromisoformat(corr._data(dia)))
+    d_ant = (d_ant - date(1970, 1, 1)).days
+    try:
+        r = con.execute("SELECT ultimo_liquido FROM fechamento_diario WHERE dia_idx=? AND ativo=?",
+                        (d_ant, simbolo)).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return r[0] if r and r[0] is not None else None
+
+
 def _ohlc(con, simbolo, dia):
-    """{"abertura", "minima", "maxima", "ultimo", "anterior", "var_pct"} do simbolo no dia; o anterior e o
-    ultimo do pregao anterior pela mesma regra."""
+    """{"abertura", "minima", "maxima", "ultimo", "anterior", "var_pct"} do simbolo no dia. O anterior e o
+    ultimo_liquido do pregao anterior em fechamento_diario quando existir; senao, o ultimo preco do pregao
+    anterior pela mesma regra de sessao."""
     p = _precos_dia(con, simbolo, dia)
     if not p:
         return {"abertura": None, "minima": None, "maxima": None, "ultimo": None, "anterior": None,
                 "var_pct": None}
-    anterior = _anterior(con, simbolo, dia, lambda q: q["ultimo"])
+    anterior = _anterior_consolidado(con, simbolo, dia)
+    if anterior is None:
+        anterior = _anterior(con, simbolo, dia, lambda q: q["ultimo"])
     return {"abertura": p["abertura"], "minima": p["minima"], "maxima": p["maxima"], "ultimo": p["ultimo"],
             "anterior": anterior,
             "var_pct": (p["ultimo"] / anterior - 1) * 100 if anterior else None}

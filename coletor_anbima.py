@@ -38,6 +38,7 @@ from pathlib import Path
 import requests
 
 import banco
+import calendario_b3 as cal
 
 AQUI = Path(__file__).parent
 URL_MS = "https://www.anbima.com.br/informacoes/merc-sec/arqs/ms{:%y%m%d}.txt"
@@ -268,11 +269,8 @@ def configurar_log(caminho):
 
 
 def dias_uteis(de, ate):
-    d = de
-    while d <= ate:
-        if d.weekday() < 5:
-            yield d
-        d += timedelta(days=1)
+    """Pregoes (calendario_b3.eh_pregao) de `de` a `ate`, inclusive."""
+    return cal.pregoes(de, ate)
 
 
 def main(argv=None):
@@ -296,7 +294,7 @@ def main(argv=None):
             log.info("fim: %d de %d dias gravados", len(ok), len(dias))
             return 0
         hoje = agora.date()
-        esperado = hoje if hoje.weekday() < 5 and agora.hour + agora.minute / 60 >= PUBLICA_H else \
+        esperado = hoje if cal.eh_pregao(hoje) and agora.hour + agora.minute / 60 >= PUBLICA_H else \
             max(dias_uteis(hoje - timedelta(days=7), hoje - timedelta(days=1)))
         tem = ja_no_banco(args.db)
         # dias que faltam + os 2 ultimos dias uteis sempre (a ANBIMA as vezes republica no dia seguinte)

@@ -25,8 +25,8 @@ capturado_em = hora local (Brasilia) do download, ISO.
 
 IV/delta: Black-Scholes sobre o preco de FECHAMENTO da serie (so series com >= --min-negocios
 negocios no dia), spot = fechamento do BOVA11, taxa = Selic meta do dia (BCB SGS 432), prazo em
-dias uteis/252 sem feriados (mesmo criterio do coletor_opcoes.py). E aproximado: o fechamento da
-opcao e o do BOVA11 nao sao simultaneos.
+dias uteis/252 com os feriados da ANBIMA (calendario_b3.py, mesmo criterio do coletor_opcoes.py). E
+aproximado: o fechamento da opcao e o do BOVA11 nao sao simultaneos.
 
 Uso: python posicoes_b3_csv.py [AAAA-MM-DD] [--db dados/book.db] [--subjacente BOVA11]
                                [--metodo csv|paginas] [--sem-fallback] [--faixa 0.25]
@@ -52,6 +52,7 @@ import pandas as pd
 import requests
 
 import banco
+import calendario_b3 as cal
 import opcoes_manual as om
 
 AQUI = Path(__file__).parent
@@ -188,18 +189,15 @@ def _requisicao(metodo, url, timeout, tentativas=TENTATIVAS, **kw):
 def ultima_sessao():
     """Ultimo pregao concluido segundo o calendario do BDI (considera feriados da B3).
     Ex.: consultado em 07/10 -> 06/10; numa segunda apos feriado -> a sexta anterior.
-    Sem o portal: dia util anterior (seg-sex), sem feriados."""
+    Sem o portal: pregao anterior pelo calendario_b3 (dias uteis ANBIMA, sem 24/12 e 31/12)."""
     hoje = agora_br().date()
     try:
         r = _requisicao("GET", f"{BDI}/table/workday?date={hoje:%Y-%m-%d}", TIMEOUT_JSON)
         d = date.fromisoformat(r.json()[:10])
-        return d if d < hoje else d - timedelta(days=1 if d.weekday() else 3)
+        return d if d < hoje else cal.pregao_anterior(hoje)
     except Exception as e:
-        log.warning("calendario do BDI indisponivel (%s); usando o dia util anterior", e)
-        d = hoje - timedelta(days=1)
-        while d.weekday() >= 5:
-            d -= timedelta(days=1)
-        return d
+        log.warning("calendario do BDI indisponivel (%s); usando o pregao anterior", e)
+        return cal.pregao_anterior(hoje)
 
 
 # ------------------------------------------------------------------ OpenPositionsEquities
@@ -447,8 +445,7 @@ def montar(sessao, subjacente, metodo, min_negocios, fallback=True):
     spot = float(spot.iloc[0]) if len(spot) and pd.notna(spot.iloc[0]) else None
     r, selic = taxa_selic(sessao)
     venc = pd.to_datetime(df["vencimento"], errors="coerce").dt.date
-    df["dias_uteis"] = [int(np.busday_count(sessao + timedelta(days=1), v + timedelta(days=1)))
-                        if isinstance(v, date) and v > sessao else 0 for v in venc]
+    df["dias_uteis"] = [cal.du_ate_vencimento(sessao, v) if isinstance(v, date) else 0 for v in venc]
     if spot:
         df["dist_pct"] = df["strike"] / spot - 1
         itm = np.where(df["tipo"] == "C", df["strike"] < spot, df["strike"] > spot)

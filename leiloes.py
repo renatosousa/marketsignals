@@ -9,7 +9,7 @@ Por linha de resultado (titulo, vencimento, volta):
   concessao_bps (taxa de corte - taxa indicativa ANBIMA da vespera) x 10.000, para o mesmo vencimento (LTN, NTN-F, NTN-B).
                 So existe desde 14/09/2026 (historico da ANBIMA em anbima_titulos); LFT fica NULL
   curva_bps     taxa de corte contra a ETTJ da ANBIMA da vespera interpolada no prazo (pre para LTN/NTN-F, IPCA para NTN-B)
-  duracao_mod / dv01_brl  duration modificada (base 252, feriados nacionais da ANBIMA calculados aqui, valor na data de
+  duracao_mod / dv01_brl  duration modificada (base 252, feriados nacionais da ANBIMA em calendario_b3.py, valor na data de
                 liquidacao, taxa media) e DV01 = duration x financeiro x 0,0001. Compra e Extra Compra tem sinal
                 inverso; LFT e Troca ficam NULL
   pu_modelo / vna_implicito  verificacao do fluxo: PU recalculado pela taxa media (LTN, NTN-F) e VNA que a NTN-B implica
@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 
 import banco
+from calendario_b3 import HOL, du, feriados, pascoa
 from coletor_leiloes import SCHEMA as SCHEMA_RES, agora_br
 
 AQUI = Path(__file__).parent
@@ -68,34 +69,7 @@ COMPRAS = ("COMPRA", "EXTRA_COMPRA")
 PRE, REAL = ("LTN", "NTN-F"), ("NTN-B",)
 
 
-# ------------------------------------------------------------------ calendario ANBIMA (calculado, nao baixado)
-def pascoa(ano):
-    a, b, c = ano % 19, ano // 100, ano % 100
-    d, e = b // 4, b % 4
-    f = (b + 8) // 25
-    g = (b - f + 1) // 3
-    h = (19 * a + b - d - g + 15) % 30
-    i, k = c // 4, c % 4
-    l = (32 + 2 * e + 2 * i - h - k) % 7
-    m = (a + 11 * h + 22 * l) // 451
-    mes, dia = divmod(h + l - 7 * m + 114, 31)
-    return date(ano, mes, dia + 1)
-
-
-def feriados(ano):
-    """Feriados nacionais que a ANBIMA nao negocia. Consciencia Negra (20/11) so vale desde 2024."""
-    p = pascoa(ano)
-    f = {date(ano, 1, 1), date(ano, 4, 21), date(ano, 5, 1), date(ano, 9, 7), date(ano, 10, 12), date(ano, 11, 2),
-         date(ano, 11, 15), date(ano, 12, 25), p - timedelta(days=48), p - timedelta(days=47), p - timedelta(days=2),
-         p + timedelta(days=60)}
-    if ano >= 2024:
-        f.add(date(ano, 11, 20))
-    return f
-
-
-HOL = np.array(sorted(d for ano in range(2000, 2085) for d in feriados(ano)), dtype="datetime64[D]")
-
-
+# ------------------------------------------------------------------ calendario ANBIMA (em calendario_b3.py)
 def ok(x):
     """valor numerico presente (nao None, nao NaN)."""
     return x is not None and x == x
@@ -118,11 +92,6 @@ def py(x):
 
 def d64(s):
     return np.datetime64(s, "D")
-
-
-def du(d0, d1):
-    """Dias uteis de d0 (inclusive) a d1 (exclusive): d0 util => conta (d0, d1] ate d1 util."""
-    return np.busday_count(d64(d0), d64(d1), holidays=HOL)
 
 
 def somar_meses(d, n):
@@ -149,7 +118,7 @@ def fluxos(titulo, venc, liq):
         cfs = [cupom] * len(datas)
         cfs[-1] += principal
     pag = np.busday_offset(np.array([d64(d) for d in datas]), 0, roll="forward", holidays=HOL)
-    dus = np.busday_count(d64(liq), pag, holidays=HOL)
+    dus = np.array([du(liq, p) for p in pag], dtype=float)
     manter = dus > 0
     return dus[manter].astype(float), np.array(cfs)[manter]
 

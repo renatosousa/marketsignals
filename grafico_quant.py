@@ -44,6 +44,8 @@ import time
 import numpy as np
 import pandas as pd
 
+import calendario_b3 as cal
+
 DIA_MS = 86_400_000
 H = lambda hh, mm=0: (hh * 60 + mm) * 60_000
 SESSAO = (H(9), H(18, 30))
@@ -416,7 +418,7 @@ def gex(pos, spot, dia_iso, r, ivs=None, iv_padrao=None, n_wall=2, faixa=GEX_FAI
     s = s[s.iv_uso > 0]
     if s.empty:
         return None
-    du = np.busday_count(np.datetime64(dia_iso), s.venc.to_numpy(dtype="datetime64[D]"))
+    du = np.array([cal.du(dia_iso, v) for v in s.venc], dtype=float)
     t = np.maximum(du, 0.5) / 252
     call = (s.tipo == "C").to_numpy()
     sinal = np.where(call, 1.0, -1.0)
@@ -469,14 +471,14 @@ def implicito_opcoes(pos, spot, dia_iso, abertura, du_min=OPC_DU_MIN):
     if not pos or not spot:
         return None
     s = pos["series"].dropna(subset=["iv"])
-    du = np.busday_count(np.datetime64(dia_iso), s.venc.to_numpy(dtype="datetime64[D]"))
+    du = np.array([cal.du(dia_iso, v) for v in s.venc])
     s = s[du >= du_min]
     if s.empty:
         return None
     v = s.venc.min()
     g = s[s.venc == v].groupby("strike").agg(iv=("iv", "mean"), fator=("fator", "first")).reset_index()
     iv = float(np.interp(spot * float(g.fator.iloc[0]), g.strike, g.iv))
-    t_anos = float(np.busday_count(np.datetime64(dia_iso), np.datetime64(v))) / 252
+    t_anos = float(cal.du(dia_iso, v)) / 252
     return dict(iv=iv, vencimento=v, t=None, sig_dia_pts=abertura * iv / math.sqrt(252),
                 sig_venc_pts=abertura * iv * math.sqrt(t_anos))
 

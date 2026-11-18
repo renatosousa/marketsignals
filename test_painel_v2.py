@@ -299,6 +299,54 @@ class TestFechamento(unittest.TestCase):
         self.assertEqual(r["texto_final"], "Leitura dos dados, não recomendação.")
 
 
+class TestFechamentoSessao(unittest.TestCase):
+    def banco(self):
+        """WDO$ e IND$ em macro_cotacoes com uma cotacao de pre-abertura (08:55) e a primeira do pregao
+        (09:00:58); fechamento_diario do pregao anterior."""
+        db = sqlite3.connect(":memory:")
+        db.executescript(SCHEMA_MERCADO)
+        db.executescript("""
+            CREATE TABLE fechamento_diario (dia_idx INTEGER NOT NULL, ativo TEXT NOT NULL, abertura REAL,
+                maxima REAL, minima REAL, ultimo_liquido REAL NOT NULL, ultimo_dia REAL, ajuste_b3 REAL,
+                vwap_dia REAL, poc_dia REAL, vah_dia REAL, val_dia REAL, vol_realizada_dia REAL, fonte TEXT,
+                ts_consolidacao_ms INTEGER NOT NULL, PRIMARY KEY (dia_idx, ativo));
+        """)
+        db.executemany("INSERT INTO macro_cotacoes (ts_ms, symbol, mid) VALUES (?,?,?)",
+                       [(DIA * D + (8 * 60 + 55) * MIN + 15_000, "WDO$", 5799.5),   # pre-abertura: ontem
+                        (DIA * D + (9 * 60 + 0) * MIN + 58_000, "WDO$", 5792.75),  # primeira do pregao
+                        (DIA * D + (9 * 60 + 1) * MIN, "WDO$", 5790.75),
+                        (DIA * D + (18 * 60 + 29) * MIN + 58_000, "WDO$", 5791.0),
+                        (DIA * D + (8 * 60 + 55) * MIN, "IND$", 171030.0),
+                        (DIA * D + (9 * 60 + 1) * MIN, "IND$", 171000.0),
+                        (DIA * D + (18 * 60 + 29) * MIN, "IND$", 170900.0)])
+        db.execute("INSERT INTO fechamento_diario (dia_idx, ativo, ultimo_liquido, ts_consolidacao_ms) "
+                   "VALUES (?,?,?,?)", (DIA_ANT, "WDO$", 5798.0, 0))
+        return db
+
+    def test_abertura_ignora_cotacao_de_pre_abertura(self):
+        w = p._ohlc(self.banco(), "WDO$", DIA)
+        self.assertEqual(w["abertura"], 5792.75)
+        self.assertEqual(w["ultimo"], 5791.0)
+        self.assertEqual(w["anterior"], 5798.0)          # veio de fechamento_diario, nao do dia anterior
+
+    def test_barras_de_pre_abertura_tambem_ficam_de_fora(self):
+        db = self.banco()
+        db.executemany("INSERT INTO barras_1m (symbol, ts_ms, open, high, low, close) VALUES (?,?,?,?,?,?)",
+                       [("WIN$", ts(DIA, 8, 55), 170845.0, 170845.0, 170845.0, 170845.0),
+                        ("WIN$", ts(DIA, 9, 1), 171000.0, 171010.0, 170990.0, 171000.0)])
+        w = p._ohlc(db, "WIN$", DIA)
+        self.assertEqual(w["abertura"], 171000.0)
+
+    def test_acao_ignora_fora_da_sessao(self):
+        db = self.banco()
+        db.executemany("INSERT INTO macro_cotacoes (ts_ms, symbol, mid) VALUES (?,?,?)",
+                       [(ts(DIA, 9, 30), "VALE3", 60.0), (ts(DIA, 10, 0), "VALE3", 61.0),
+                        (ts(DIA, 16, 0), "VALE3", 65.0), (ts(DIA, 17, 30), "VALE3", 70.0)])
+        v = p._ohlc(db, "VALE3", DIA)
+        # 09:30 e 17:30 estao fora de 10:00-17:00: a sessao da acao usa 61,0 -> 65,0
+        self.assertEqual((v["abertura"], v["ultimo"]), (61.0, 65.0))
+
+
 def banco_correlacoes(semente=0):
     """WIN$ (snapshots) e WDO$ (macro) de 10:00 a 11:40 de 11/11/2026, WIN = -0,5 x WDO + ruido."""
     db = sqlite3.connect(":memory:")

@@ -16,12 +16,13 @@ Uso: python lacunas.py [--db dados/book.db] [--dia AAAA-MM-DD ...] [--desde AAAA
 """
 import argparse
 import sqlite3
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 
 import banco
+import calendario_b3 as cal
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS lacunas_dados (
@@ -85,8 +86,7 @@ def main():
     hoje = date.today()
     if args.desde:
         d = date.fromisoformat(args.desde)
-        dias = [(d + timedelta(days=k)).isoformat() for k in range((hoje - d).days + 1)
-                if (d + timedelta(days=k)).weekday() < 5]
+        dias = [d.isoformat() for d in cal.pregoes(d, hoje)]
     else:
         dias = args.dia or [hoje.isoformat()]
     con = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True, timeout=30)

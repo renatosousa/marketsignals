@@ -1,6 +1,7 @@
 """Regime do WIN ao vivo -> tabela regime_live (1 linha por minuto), para o dashboard e o Jev.
 
-Na partida (08:55, pelo supervisor) atualiza as barras recentes e treina o modelo do dia
+Na partida (08:55, pelo supervisor) atualiza as barras recentes, as correlacoes/estimador do Tryd e consolida o
+fechamento dos ultimos pregoes em fechamento_diario (consolidar_fechamento.py) e treina o modelo do dia
 (modelo_regime.py). Depois, a cada minuto, le do banco o WIN (snapshots), o dolar e o DI
 (macro_cotacoes) e o VIX (IBKR, aceito com 15 min de atraso por ser medida lenta) e grava:
 
@@ -174,6 +175,12 @@ def main():
         print(f"estimador do Tryd: {estimador_tryd.atualizar(args.db)} dia(s)", flush=True)
     except Exception as e:
         print(f"aviso: estimador do Tryd nao atualizado ({e.__class__.__name__}: {e})", flush=True)
+    try:  # fechamento consolidado dos ultimos pregoes (tabela fechamento_diario, usada pelo /api/fechamento)
+        import consolidar_fechamento
+        print(f"fechamento consolidado: {consolidar_fechamento.consolidar_pendentes(args.db)} pregao(oes)",
+              flush=True)
+    except Exception as e:
+        print(f"aviso: fechamento nao consolidado ({e.__class__.__name__}: {e})", flush=True)
 
     if treinar:
         print("treinando o modelo do dia...", flush=True)

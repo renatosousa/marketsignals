@@ -27,6 +27,7 @@ import pandas as pd
 import requests
 
 import banco
+import calendario_b3 as cal
 
 URL = "https://arquivos.b3.com.br/bdi/table/SharesInvesVolum/{d}/{d}/1/50"
 ESTRANGEIRO = "Investidor Estrangeiro"
@@ -52,11 +53,8 @@ def buscar_publicacao(data_pub):
 
 
 def dias_uteis(inicio, fim):
-    d = inicio
-    while d <= fim:
-        if d.weekday() < 5:
-            yield d
-        d += timedelta(days=1)
+    """Pregoes (calendario_b3.eh_pregao) de `inicio` a `fim`, inclusive."""
+    return cal.pregoes(inicio, fim)
 
 
 def pregoes(con):
