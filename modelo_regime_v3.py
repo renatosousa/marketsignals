@@ -65,6 +65,10 @@ COLS_A = ["log_sigma", "er_pas", "ret_pas_std", "min_ate_fim"]
 COLS_B = COLS_A + ["rr25"]
 GEX_MIN_PREGOES = 30
 INICIO_OPCOES = "2026-09-25"
+# 18/11/2026: o modelo B (+ RR25) teve so 35 pregoes, supercobriu (60 min: 89,7% no [q15,q85]; fechamento 98,1%) e
+# perdeu no pinball para o A na subamostra comum. Fica treinado para comparacao, mas a previsao usa o A ate o B
+# ter >= 120 pregoes e ganhar fora da amostra.
+USAR_B = False
 DU_MIN_OPCAO = 5
 
 
@@ -630,11 +634,12 @@ def treinar(con):
         if len(base) < 80:
             m[f"qr_{nome}"] = None
             continue
-        q60 = _fit_final(base, cols, "z60", calib=CALIB_B, min_treino=MIN_TREINO_B)
-        qfech = _fit_final(base, cols, "zfech", calib=CALIB_B, min_treino=MIN_TREINO_B)
+        calib, minimo = (CALIB, MIN_TREINO) if nome == "A" else (CALIB_B, MIN_TREINO_B)
+        q60 = _fit_final(base, cols, "z60", calib=calib, min_treino=minimo)
+        qfech = _fit_final(base, cols, "zfech", calib=calib, min_treino=minimo)
         m[f"qr_{nome}"] = {"60min": q60, "fechamento": qfech, "linhas": int(len(base)),
                            "pregoes": int(base.dia.nunique()), "cols": cols}
-        if nome == "B" and q60 is not None and qfech is not None:
+        if nome == "B" and q60 is not None and qfech is not None and USAR_B:
             m["modelo"] = "B"
     return m
 
@@ -746,7 +751,7 @@ def prever(con, agora_ms, modelo):
     if not np.isfinite(sigma) or sigma <= 0:
         return None
     rr = _rr25_hoje(con, dia_iso, agora_ms)
-    nome = "B" if (rr is not None and modelo.get("qr_B")) else "A"
+    nome = "B" if (USAR_B and rr is not None and modelo.get("qr_B")) else "A"
     qr = modelo["qr_B"] if nome == "B" else modelo["qr_A"]
     cols = modelo["colunas_b"] if nome == "B" else modelo["colunas_a"]
     valores = {"log_sigma": np.log(sigma), "er_pas": er_pas,
