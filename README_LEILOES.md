@@ -13,7 +13,22 @@ Dataset ds013 do Tesouro Transparente ("Resultado dos leilões da Dívida Públi
 | Histórico completo (xls antigo, ~5 MB, 27 abas "Ano 2026" a "Ano 2000") | `https://sisweb.tesouro.gov.br/apex/cosis/rleiloes/arquivos/todos/desc/historico-leiloes-todos.xls` |
 | Um ano (xlsx; 2011 a 2018 só existem em xls; o do ano novo dá 404 em janeiro) | `https://sisweb.tesouro.gov.br/apex/cosis/rleiloes/arquivos/unico/desc/historico-leiloes-{ANO}.xlsx` |
 
-Conferido: 19.951 linhas de 04/01/2000 a 03/11/2026; Venda 17.161, Compra 1.505, Troca 598, Extra Compra 358, Extra Venda 329; 12.686 linhas de 1ª volta e 7.265 de 2ª. O leilão de 03/11 já estava no arquivo de 2026 às 11h de 04/11. A linha da LFT 01/03/2032 de 06/01/2026 (750.000 ofertados e vendidos, R$ 13.506.269.547,68, 500.000 ao Bacen) é o teste de aceitação.
+Conferido em 18/11/2026: 19.961 linhas de 04/01/2000 a 05/11/2026 (2.520 datas de leilão); Venda 17.171, Compra 1.505, Troca 598, Extra Compra 358, Extra Venda 329; 12.690 linhas de 1ª volta e 7.271 de 2ª. O arquivo de 05/11 saiu em duas passadas: 1ª volta (6 linhas) em 05/11 12:07 e 2ª volta (6 linhas) em 06/11 17:23, sem duplicar. A linha da LFT 01/03/2032 de 06/01/2026 (750.000 ofertados e vendidos, R$ 13.506.269.547,68, 500.000 ao Bacen) é o teste de aceitação.
+
+### Fonte alternativa: API pública por data (18/11/2026)
+
+O SISWEB está devolvendo **HTTP 500** no arquivo do ano e no histórico desde **05/11/2026**. A API pública do Tesouro responde JSON por data, sem autenticação:
+
+`GET https://apiapex.tesouro.gov.br/aria/v1/api-leiloes-pub/custom/resultados?dataleilao=DD/MM/AAAA` → `{"registros": [...]}`
+
+- Só tem **2026** (datas anteriores devolvem lista vazia); um dia sem leilão devolve `{"registros": []}`.
+- Um registro da API vira **até duas linhas** de `leilao_resultados`: 1ª volta (`oferta`, `quantidade_aceita` → venda, `financeiro_aceito`, `liquidacao`, `taxa_media`, `taxa_maxima` → taxa de corte, `quantidade_bcb`/`financeiro_bcb`) e 2ª volta quando `oferta_segunda_volta > 0` (`oferta_segunda_volta`, `quantidade_aceita_segunda_volta`, `financeiro_aceito_segunda_volta`, `liquidacao_segunda_volta`; as taxas da 2ª volta são as da 1ª, como o SISWEB grava).
+- `tipo_leilao` = Venda/Compra/Troca; `tipo_ocorrencia` = Ordinário/**Extraordinário** marca os leilões Extra (há `EXTRA_VENDA` e `EXTRA_COMPRA`; Troca extraordinária continua `TROCA`).
+- Taxas da API em % → fração (`/100`), com arredondamento em 10 casas para o hash bater com o SISWEB.
+- `arquivo = 'api-leiloes-pub'`, `aba = NULL`, `linha = NULL`.
+- `update` tenta o SISWEB e, em 5xx/timeout, completa cada pregão de (última data do banco + 1) até hoje pela API. `supervisor` usa o mesmo `update`. Como a chave e o `hash` são os mesmos, a planilha do SISWEB que chegar depois revisa a linha (se necessário) em vez de duplicar.
+
+**Conferência de 05/11/2026:** o mapeamento da API reproduziu as **12 linhas** que o SISWEB já tinha no banco (LTN e NTN-F, 1ª e 2ª voltas): rodando o mapeamento num banco vazio e comparando com o `book.db` em modo `ro`, as 12 linhas saíram **idênticas campo a campo, inclusive o `hash`** (0 diferenças). O teste `test_leiloes.TestApiLeiloes` usa as fixtures reais `testes_fixtures/leiloes_api_20261105.json` (e 17/11 e 16/03). Rodando o fallback num banco temporário a partir de 05/11 até 17/11 entraram 10/11 (7 linhas), 12/11 (11) e 17/11 (8); 06, 09, 11, 13 e 16/11 não tiveram leilão.
 
 O cabeçalho não fica numa linha fixa: o parser procura "Data do leilão" e mapeia as 13 colunas pelo nome; se faltar alguma, falha em vez de gravar errado. O `.xlsx` do Tesouro não traz a tag `<dimension>`, por isso é lido sem `read_only`.
 

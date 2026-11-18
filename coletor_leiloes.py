@@ -8,6 +8,13 @@ Fonte publica, sem login (conferida em 04/11/2026): dataset ds013 do Tesouro Tra
   O cabecalho nao fica numa linha fixa: o parser procura "Data do leilao" e mapeia as colunas pelo nome.
   Datas em serial do Excel, taxas em fracao decimal (0,078280 = 7,8280% a.a.; na LFT e agio/desagio).
 
+Fonte alternativa (descoberta em 18/11/2026, com o SISWEB em 500 desde 05/11/2026): a API publica do Tesouro
+devolve JSON por data, sem autenticacao:
+  GET https://apiapex.tesouro.gov.br/aria/v1/api-leiloes-pub/custom/resultados?dataleilao=DD/MM/AAAA
+  -> {"registros": [...]} (lista vazia em dia sem leilao). Taxas em % a.a., uma entrada por titulo/vencimento
+  com a oferta e a aceitacao da 1a e da 2a volta. Aceita so datas de 2026 (o historico anterior nao esta la).
+  buscar_api() converte para o mesmo formato de parsear(); mapear_api() e puro (testavel com fixture).
+
 O que o arquivo NAO traz: volume de propostas (nao ha bid-to-cover; ver leiloes.py: absorcao = venda / oferta).
 "Venda para Bacen" e quantidade ADICIONAL a "Venda" (ao mesmo PU), nao uma parte dela: em 793 das 1.035 linhas com
 Bacen a quantidade supera a venda ao mercado.
@@ -20,7 +27,8 @@ Tabelas (data = AAAA-MM-DD do leilao; quantidades em titulos; financeiro em R$; 
   leilao_metricas / leilao_alertas: ver leiloes.py
 
 Uso: python coletor_leiloes.py backfill [--arquivo CAMINHO]   carrega o historico completo (baixa o todos.xls)
-     python coletor_leiloes.py update [--ano 2026]            baixa o ano, grava o que mudou, recalcula metricas/alertas
+     python coletor_leiloes.py update [--ano 2026]            baixa o ano; se o SISWEB falhar (5xx/timeout),
+                                                              completa os dias uteis pela API publica
      python coletor_leiloes.py status                         resumo do que ha no banco
      python coletor_leiloes.py LEILOES SEGUNDOS               supervisor (rodar_coleta.py): ver `supervisor`
      [--db dados/book.db]
@@ -41,15 +49,19 @@ from pathlib import Path
 import requests
 
 import banco
+from calendario_b3 import eh_pregao
 
 AQUI = Path(__file__).parent
 BRUTO = AQUI / "dados" / "raw" / "leiloes"
 URL_TODOS = "https://sisweb.tesouro.gov.br/apex/cosis/rleiloes/arquivos/todos/desc/historico-leiloes-todos.xls"
 URL_ANO = "https://sisweb.tesouro.gov.br/apex/cosis/rleiloes/arquivos/unico/desc/historico-leiloes-{ano}.{ext}"
+URL_API = "https://apiapex.tesouro.gov.br/aria/v1/api-leiloes-pub/custom/resultados"
 UA = {"User-Agent": "Mozilla/5.0 (coletor_leiloes; uso pessoal)"}
 TIMEOUT = (20, 120)
+TIMEOUT_API = (20, 60)
 TENTATIVAS = 4
 ESPERA = (5, 20, 60)
+ARQUIVO_API = "api-leiloes-pub"
 
 # cabecalho em portugues (sem acento, minusculo) -> campo
 CABECALHO = {
@@ -248,6 +260,75 @@ def numerar(regs):
     return saida, copias
 
 
+# ------------------------------------------------------------------ API publica (fonte alternativa)
+TIPOS_API = {"venda": "VENDA", "compra": "COMPRA", "troca": "TROCA"}
+
+
+def tipo_da_api(tipo_leilao, tipo_ocorrencia):
+    """('Venda', 'Ordinario') -> VENDA; ('Compra', 'Extraordinario') -> EXTRA_COMPRA.
+
+    A API marca o leilao extraordinario em tipo_ocorrencia ('Extraordinario'), nao no tipo_leilao. Troca
+    extraordinaria continua TROCA: nao existe EXTRA_TROCA no banco (nem no SISWEB). None se o tipo mudou."""
+    tipo = TIPOS_API.get(sem_acento(tipo_leilao or ""))
+    if tipo is None:
+        return None
+    if tipo != "TROCA" and sem_acento(tipo_ocorrencia or "").startswith("extra"):
+        return "EXTRA_" + tipo
+    return tipo
+
+
+def mapear_api(dados):
+    """JSON da api-leiloes-pub -> registros no formato de parsear() (ate duas linhas por registro da API).
+
+    Volta 1: oferta, quantidade_aceita -> venda, financeiro_aceito -> financeiro, liquidacao, taxa_media e
+    taxa_maxima (-> taxa de corte), quantidade_bcb/financeiro_bcb. Volta 2, quando oferta_segunda_volta > 0:
+    oferta/aceitacao/financeiro/liquidacao da segunda volta e as taxas da volta 1 (e assim que o SISWEB grava;
+    a API nao repete as taxas da 2a volta). Taxas em % -> fracao (/100), arredondadas em 10 casas para o hash
+    bater com o valor que o SISWEB grava. Registro sem tipo/data/vencimento reconhecivel e ignorado."""
+    regs = []
+    for item in dados.get("registros") or []:
+        tipo = tipo_da_api(item.get("tipo_leilao"), item.get("tipo_ocorrencia"))
+        data, venc = como_data(item.get("data_leilao")), como_data(item.get("vencimento"))
+        titulo = str(item.get("titulo") or "").strip().upper()
+        if not (tipo and data and venc and titulo):
+            continue
+
+        def taxa(campo):
+            v = como_num(item.get(campo))
+            return None if v is None else round(v / 100.0, 10)
+
+        base = dict(data=data, titulo=titulo, tipo=tipo, vencimento=venc, aba=None, linha=None)
+        vol1 = dict(base, volta=1, liquidacao=como_data(item.get("liquidacao")) or "",
+                    oferta=como_num(item.get("oferta")), tx_media=taxa("taxa_media"), tx_corte=taxa("taxa_maxima"),
+                    venda=como_num(item.get("quantidade_aceita")), financeiro=como_num(item.get("financeiro_aceito")),
+                    venda_bacen=como_num(item.get("quantidade_bcb")), financeiro_bacen=como_num(item.get("financeiro_bcb")))
+        regs.append(vol1)
+        if (como_num(item.get("oferta_segunda_volta")) or 0) > 0:
+            regs.append(dict(base, volta=2, liquidacao=como_data(item.get("liquidacao_segunda_volta")) or "",
+                             oferta=como_num(item.get("oferta_segunda_volta")),
+                             tx_media=vol1["tx_media"], tx_corte=vol1["tx_media"],
+                             venda=como_num(item.get("quantidade_aceita_segunda_volta")),
+                             financeiro=como_num(item.get("financeiro_aceito_segunda_volta")),
+                             # o SISWEB grava zero (nao NULL) nas colunas do Bacen da 2a volta
+                             venda_bacen=0.0, financeiro_bacen=0.0))
+    return regs
+
+
+def buscar_api(data):
+    """Registros de um dia (AAAA-MM-DD ou date) na API publica, no formato de parsear().
+
+    [] = dia sem leilao (inclusive datas anteriores a 2026, que a API nao tem). Levanta em erro de rede/5xx/JSON
+    invalido: quem chama decide tentar de novo (o supervisor) ou pular o dia."""
+    d = data if isinstance(data, date) else date.fromisoformat(str(data))
+    r = requests.get(URL_API, params={"dataleilao": f"{d:%d/%m/%Y}"}, headers=UA, timeout=TIMEOUT_API)
+    r.raise_for_status()
+    try:
+        dados = r.json()
+    except ValueError as e:
+        raise RuntimeError(f"a API de leiloes devolveu algo que nao e JSON (HTTP {r.status_code})") from e
+    return mapear_api(dados)
+
+
 # ------------------------------------------------------------------ banco
 def gravar(db, regs, arquivo, agora=None):
     """Upsert pela chave natural. Revisao (hash diferente) atualiza a linha e deixa o antes/depois em leilao_revisoes.
@@ -320,9 +401,54 @@ def backfill(db, arquivo=None):
     return 0
 
 
+def atualizar_por_api(db, hoje=None):
+    """Fallback do SISWEB: busca na API publica cada pregao de (ultima data do banco + 1) ate hoje.
+
+    Grava pelo mesmo gravar() (mesma chave e mesmo hash), entao a chegada posterior da planilha do SISWEB
+    revisa a linha em vez de duplicar. Dias sem leilao devolvem lista vazia e nao gravam nada.
+    -> dict(dias, linhas, consultados, erros)."""
+    hoje = hoje or agora_br().date()
+    ultima = db.execute("SELECT MAX(data) FROM leilao_resultados").fetchone()[0]
+    if not ultima:
+        print(f"{ARQUIVO_API}: banco sem leilao anterior; nao ha de onde completar", file=sys.stderr)
+        return dict(dias=0, linhas=0, consultados=0, erros=0)
+    d, resumo, ids = date.fromisoformat(ultima) + timedelta(days=1), dict(dias=0, linhas=0, consultados=0, erros=0), []
+    while d <= hoje:
+        if not eh_pregao(d):
+            d += timedelta(days=1)
+            continue
+        resumo["consultados"] += 1
+        try:
+            regs = buscar_api(d)
+        except Exception as e:
+            resumo["erros"] += 1
+            print(f"{ARQUIVO_API} {d}: erro ({e.__class__.__name__}: {e})", file=sys.stderr)
+            d += timedelta(days=1)
+            continue
+        if regs:
+            res = gravar(db, regs, ARQUIVO_API)
+            ids += res["novos"] + res["revisados"]
+            resumo["dias"] += 1
+            resumo["linhas"] += len(regs)
+            print(f"{ARQUIVO_API} {d}: {len(regs)} linhas ({len(res['novos'])} novas, "
+                  f"{len(res['revisados'])} revisadas, {res['iguais']} iguais)", flush=True)
+        d += timedelta(days=1)
+    if ids:
+        import leiloes
+        leiloes.atualizar(db, ids, alertas_desde=(agora_br().date() - timedelta(days=10)).isoformat())
+    print(f"{ARQUIVO_API}: {resumo['consultados']} pregoes consultados, {resumo['dias']} com leilao, "
+          f"{resumo['linhas']} linhas, {resumo['erros']} erro(s)", flush=True)
+    return resumo
+
+
 def update(db, ano=None):
     ano = ano or agora_br().year
-    achou = baixar_ano(ano)
+    try:
+        achou = baixar_ano(ano)
+    except (requests.RequestException, RuntimeError) as e:  # SISWEB em 500 desde 05/11/2026: usa a API por data
+        print(f"SISWEB indisponivel ({e.__class__.__name__}: {e}); usando a API publica por data", file=sys.stderr)
+        resumo = atualizar_por_api(db)
+        return 1 if resumo["consultados"] and resumo["erros"] == resumo["consultados"] else 0
     if achou is None and ano == agora_br().year and agora_br().month <= 2:
         achou = baixar_ano(ano - 1)  # arquivo do ano novo ainda nao existe em janeiro/fevereiro
     if achou is None:

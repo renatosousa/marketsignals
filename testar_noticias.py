@@ -33,9 +33,33 @@ def test_norm_titulo():
 
 def test_jaccard():
     """Testa similaridade de Jaccard."""
-    assert cn.jaccard("bolsa caiu forte", "bolsa caiu muito") > 0.5
+    # 2 tokens em comum de 4 na uniao: exatamente 0,5. O limiar de dedup e 0,8 (ver README),
+    # entao o teste confere o valor da similaridade e nao um "maior que" que nunca foi verdadeiro.
+    assert abs(cn.jaccard("bolsa caiu forte", "bolsa caiu muito") - 0.5) < 1e-9
     assert cn.jaccard("bolsa sobe", "dolar cai") < 0.2
     print("  test_jaccard: OK")
+
+
+def test_similar():
+    """Dedup nao pode confundir titulos que so diferem em data/edicao/numero."""
+    # Relatorios Focus semanais: mesmo titulo, data diferente -> Jaccard 1,0, mas nao sao duplicata.
+    foco_a = cn.norm_titulo("BC - Focus - Relatorio de Mercado - 13/11/2026")
+    foco_b = cn.norm_titulo("BC - Focus - Relatorio de Mercado - 06/11/2026")
+    assert cn.jaccard(foco_a, foco_b) == 1.0
+    assert not cn.similar(foco_a, foco_b)
+
+    # Mesmo caso com numero de edicao/sorteio.
+    assert not cn.similar(cn.norm_titulo("Mega-Sena 3086: premio acumula em R$ 34 milhoes"),
+                          cn.norm_titulo("Mega-Sena 3087: premio acumula em R$ 34 milhoes"))
+
+    # Percentual com virgula decimal ("0,5" vira "0 5" no titulo normalizado).
+    assert not cn.similar(cn.norm_titulo("IPCA de outubro fica em 0,5%"),
+                          cn.norm_titulo("IPCA de outubro fica em 0,3%"))
+
+    # Mesma noticia republicada por dois veiculos, com os mesmos numeros: continua duplicata.
+    assert cn.similar(cn.norm_titulo("Copom eleva Selic para 15,25% e sinaliza cautela"),
+                      cn.norm_titulo("Copom eleva Selic para 15,25% e sinaliza cautela no comunicado"))
+    print("  test_similar: OK")
 
 
 def test_ts_br_ms():
@@ -91,6 +115,19 @@ def test_dedup():
         
         cursor = db.execute("SELECT COUNT(*) FROM noticias WHERE dup_de IS NOT NULL")
         assert cursor.fetchone()[0] == 1
+        
+        # Titulos que so diferem na data (Focus semanal) sao noticias distintas.
+        focus = [
+            {"titulo": f"BC - Focus - Relatorio de Mercado - {d}/11/2026", "url": f"https://bcb.gov.br/focus/{d}112026",
+             "resumo": "", "ts_pub_ms": ts_coleta - 60000, "fonte": "bcb_focus", "idioma": "pt", "evento": None}
+            for d in ("13", "06")
+        ]
+        n_novas, n_dup, originais = cn.gravar_noticias(db, focus, sessao, ts_coleta, dedup)
+        assert n_novas == 2
+        assert n_dup == 0
+        
+        cursor = db.execute("SELECT COUNT(*) FROM noticias WHERE fonte = 'bcb_focus' AND dup_de IS NULL")
+        assert cursor.fetchone()[0] == 2
         
         db.close()
         print("  test_dedup: OK")
@@ -166,6 +203,7 @@ def main():
     test_canon_url()
     test_norm_titulo()
     test_jaccard()
+    test_similar()
     test_ts_br_ms()
     test_filtro_relevancia()
     test_dedup()

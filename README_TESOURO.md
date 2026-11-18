@@ -41,6 +41,8 @@ python coletor_tesouro.py 2026-10-20            # um dia específico
 python coletor_tesouro.py 2026-10-01 2026-10-20 # intervalo
 ```
 
+Na partida do `coletor_regime.py` (08:55, pelo supervisor) o `coletor_tesouro` completa os últimos 10 dias automaticamente, junto com o Focus da última sexta-feira; cada um roda no seu `try/except` e uma falha não impede o outro. Em 18/11/2026 a tabela `tesouro_taxas` ainda não existia no `book.db` (o coletor nunca tinha sido chamado desde a criação); a partida passa a criá-la e preenchê-la.
+
 ### 2. Boletim Focus (API pública do BCB)
 
 **Arquivo:** `coletor_focus.py`
@@ -56,6 +58,8 @@ python coletor_tesouro.py 2026-10-01 2026-10-20 # intervalo
 python coletor_focus.py                # última sexta-feira
 python coletor_focus.py 2026-10-16     # data específica
 ```
+
+O `coletor_focus` também roda na partida do `coletor_regime.py` (relatório mais recente, última sexta-feira). Entre 23/10 e 18/11/2026 nada o chamava: a série ficou parada nessa data mesmo com o coletor funcionando (testado em 18/11: 5 projeções de 13/11).
 
 ## Limitações e Avisos
 

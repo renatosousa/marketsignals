@@ -4,7 +4,8 @@ Fontes gratuitas: RSS de veiculos brasileiros, feeds do BCB, Federal Reserve, Fi
 com FINNHUB_API_KEY), GDELT DOC API. Classificacao local via FinBERT-PT-BR e ProsusAI/finbert (CPU).
 TypeSafe Jev opcional (--jev, TYPESAFE_API_KEY), desligado por padrao (custo ~US$ 0,05/dia).
 
-Normaliza URLs, deduplica por hash de titulo e similaridade de Jaccard, classifica em thread separada
+Normaliza URLs, deduplica por hash de titulo e similaridade de Jaccard (exigindo os mesmos numeros,
+para nao confundir edicoes/datas diferentes), classifica em thread separada
 e agrega por minuto (noticias_1min) e 5 min (noticias_5min) para features do regime.
 
 Uso: python coletor_noticias.py [GRUPO] [SEGUNDOS] [--db dados/book.db] [--jev] [--sem-gdelt]
@@ -32,6 +33,7 @@ import numpy as np
 import requests
 
 import banco
+import desempenho
 from relogio import local_br_ms
 
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -150,7 +152,7 @@ FONTES = [
 
 UA = {"User-Agent": "Mozilla/5.0 (coletor_noticias; uso pessoal)"}
 TIMEOUT_RSS = (10, 30)
-TIMEOUT_GDELT = (10, 45)
+TIMEOUT_GDELT = (20, 60)  # 18/11/2026: o handshake do GDELT levou 13-19 s; com read=45 ainda dava timeout
 TENTATIVAS = 4
 
 
@@ -188,6 +190,24 @@ def jaccard(a, b):
     if not ta or not tb:
         return 0.0
     return len(ta & tb) / len(ta | tb)
+
+
+def tokens_numericos(titulo_norm):
+    """Numeros do titulo normalizado (data, edicao, percentual)."""
+    return {w for w in titulo_norm.split() if w.isdigit()}
+
+
+def similar(titulo_a, titulo_b, limiar=0.8):
+    """Titulos equivalentes para dedup: mesmo conjunto de numeros e Jaccard >= limiar.
+
+    O Jaccard ignora tokens com menos de 3 letras, entao titulos que so diferem na data/edicao
+    (ex.: "Focus - 13/11/2026" e "Focus - 06/11/2026") davam similaridade 1,0 e eram descartados
+    como duplicata. Exigir os mesmos numeros separa edicoes/datas distintas e mantem a dedup entre
+    veiculos que publicam o mesmo texto.
+    """
+    if tokens_numericos(titulo_a) != tokens_numericos(titulo_b):
+        return False
+    return jaccard(titulo_a, titulo_b) >= limiar
 
 
 def limpar_html(texto):
@@ -340,7 +360,7 @@ def gravar_noticias(db, noticias_novas, sessao, ts_coleta_ms, dedup_recentes):
         else:
             titulo_norm = norm_titulo(titulo)
             for rec in dedup_recentes:
-                if rec["ts_coleta_ms"] >= janela_2h and jaccard(titulo_norm, rec["titulo_norm"]) >= 0.8:
+                if rec["ts_coleta_ms"] >= janela_2h and similar(titulo_norm, rec["titulo_norm"]):
                     dup_de = rec["id"]
                     n_dup += 1
                     break
@@ -721,7 +741,11 @@ class GdeltWorker:
         }
     
     def buscar_gdelt(self, consulta, query):
-        """Busca GDELT timelinevol e timelinetone."""
+        """Busca GDELT timelinevol e timelinetone.
+
+        18/11/2026: a API limita a uma requisicao a cada 5 s (HTTP 429) e o handshake levou 13-19 s.
+        Espacamos as chamadas em 8 s e repetimos uma vez em 429/timeout (6-60 s de pausa; o 429 vem
+        sem Retry-After)."""
         resultados = {}
         for mode in ("timelinevol", "timelinetone"):
             url = "https://api.gdeltproject.org/api/v2/doc/doc"
@@ -731,22 +755,40 @@ class GdeltWorker:
                 "timespan": "1h",
                 "format": "json",
             }
-            try:
-                r = requests.get(url, params=params, headers=UA, timeout=TIMEOUT_GDELT)
-                r.raise_for_status()
-                data = r.json()
-                if "timeline" in data and data["timeline"]:
-                    timeline = data["timeline"][0].get("data", [])
-                    if timeline:
-                        ultimo = timeline[-1]
-                        if mode == "timelinevol":
-                            resultados["volume"] = ultimo.get("value")
-                        else:
-                            resultados["tom"] = ultimo.get("value")
-                        resultados["ts"] = ultimo.get("date")
-                time.sleep(6)
-            except Exception as e:
-                print(f"aviso: GDELT {consulta} {mode} falhou ({e})", flush=True)
+            for tentativa in range(2):
+                try:
+                    r = requests.get(url, params=params, headers=UA, timeout=TIMEOUT_GDELT)
+                    if r.status_code == 429:
+                        if tentativa == 0:
+                            # 18/11/2026: o GDELT responde 429 sem cabecalho Retry-After; sem o limite,
+                            # o sleep de 20 s por modo travava o ciclo inteiro (6 requisicoes x ~30 s).
+                            pausa = int(r.headers.get("Retry-After") or 0)
+                            time.sleep(min(max(pausa, 6), 60))
+                            continue
+                        print(f"aviso: GDELT {consulta} {mode} falhou (HTTP 429: limite de 1 requisicao/5 s)",
+                              flush=True)
+                        break
+                    r.raise_for_status()
+                    data = r.json()
+                    if "timeline" in data and data["timeline"]:
+                        timeline = data["timeline"][0].get("data", [])
+                        if timeline:
+                            ultimo = timeline[-1]
+                            if mode == "timelinevol":
+                                resultados["volume"] = ultimo.get("value")
+                            else:
+                                resultados["tom"] = ultimo.get("value")
+                            resultados["ts"] = ultimo.get("date")
+                    break
+                except (requests.Timeout, requests.ConnectionError) as e:
+                    if tentativa == 0:
+                        time.sleep(15)
+                        continue
+                    print(f"aviso: GDELT {consulta} {mode} falhou ({e})", flush=True)
+                except Exception as e:
+                    print(f"aviso: GDELT {consulta} {mode} falhou ({e})", flush=True)
+                    break
+            time.sleep(8)
         
         return resultados if "volume" in resultados or "tom" in resultados else None
     
@@ -785,7 +827,9 @@ class GdeltWorker:
 def agregar(db, ate_ms, modelos):
     """Agrega noticias_1min e noticias_5min dos ultimos 70 minutos."""
     inicio_ms = ate_ms - 70 * 60 * 1000
-    fim_ms = (ate_ms // 60000) * 60000
+    # inclui o minuto corrente (parcial): a agregacao roda a cada minuto e o INSERT OR REPLACE
+    # recalcula esse minuto no ciclo seguinte, entao nao ha risco de ficar um valor parcial gravado.
+    fim_ms = (ate_ms // 60000) * 60000 + 60000
     
     cursor = db.execute(
         """SELECT n.ts_coleta_ms, n.fonte, n.idioma, n.dup_de, s.modelo, s.sentimento, s.conf, s.relevancia, s.surpresa
@@ -1026,7 +1070,11 @@ def main():
     ap.add_argument("--sem-classificar", action="store_true")
     ap.add_argument("--fontes", help="filtro de fontes separadas por virgula")
     args = ap.parse_args()
-    
+
+    # Mesmo ajuste dos outros processos do supervisor (dashboard, coletores): sem ele o Windows 11 pode
+    # jogar esta thread em EcoQoS e a classificacao (CPU) perde velocidade.
+    desempenho.sem_modo_eficiencia()
+
     fontes = [f for f in FONTES if f["ativo"]]
     if args.fontes:
         ids = set(args.fontes.split(","))
@@ -1181,7 +1229,7 @@ def main():
                 )
                 sent_60 = cursor.fetchone()[0]
                 
-                print(f"[{datetime.now():%H:%M}] n60={n_60} sent60={sent_60:.2f if sent_60 else 0:.2f} fila={fila_size} | "
+                print(f"[{datetime.now():%H:%M}] n60={n_60} sent60={(sent_60 or 0):.2f} fila={fila_size} | "
                       f"falhas: {falhas_str if falhas_str else 'nenhuma'}", flush=True)
             
             for fonte_id, novo_estado in estado_fontes.items():

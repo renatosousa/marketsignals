@@ -2,6 +2,7 @@
 
   python -m unittest test_leiloes -v
 """
+import json
 import sqlite3
 import unittest
 from datetime import date, datetime
@@ -172,6 +173,105 @@ class TestBanco(unittest.TestCase):
                 mock.patch.object(cl, "guardar_bruto"):
             self.assertEqual(cl.update(self.db, 2026), 0)
         self.assertEqual(self.db.execute("SELECT COUNT(*) FROM leilao_metricas").fetchone(), (3,))
+
+
+class TestApiLeiloes(unittest.TestCase):
+    """Fonte alternativa (api-leiloes-pub) com respostas reais gravadas em testes_fixtures."""
+    FIX = Path(__file__).parent / "testes_fixtures"
+
+    # as 12 linhas de 05/11/2026 gravadas pelo SISWEB no book.db (lidas em modo ro em 18/11/2026)
+    ESPERADO_05_11 = [
+        ("LTN", "VENDA", 1, "2026-11-06", "2028-01-01", 150000.0, 0.143119, 0.143149, 150000.0, 128667882.54),
+        ("LTN", "VENDA", 1, "2026-11-06", "2029-07-01", 150000.0, 0.149516, 0.149924, 150000.0, 104077885.1),
+        ("LTN", "VENDA", 1, "2026-11-06", "2032-01-01", 150000.0, 0.152, 0.152, 150000.0, 72696431.4),
+        ("NTN-F", "VENDA", 1, "2026-11-06", "2031-01-01", 150000.0, 0.151472, 0.151497, 150000.0, 133491467.7),
+        ("NTN-F", "VENDA", 1, "2026-11-06", "2033-01-01", 150000.0, 0.153086, 0.1531, 150000.0, 125882531.35),
+        ("NTN-F", "VENDA", 1, "2026-11-06", "2037-01-01", 150000.0, 0.151915, 0.152, 100000.0, 78353183.0),
+        ("LTN", "VENDA", 2, "2026-11-09", "2028-01-01", 37500.0, 0.143119, 0.143119, 24750.0, 21241490.19),
+        ("LTN", "VENDA", 2, "2026-11-09", "2029-07-01", 37500.0, 0.149516, 0.149516, 31750.0, 22042051.26),
+        ("LTN", "VENDA", 2, "2026-11-09", "2032-01-01", 37500.0, 0.152, 0.152, 35250.0, 17093256.59),
+        ("NTN-F", "VENDA", 2, "2026-11-09", "2031-01-01", 37500.0, 0.151472, 0.151472, 35250.0, 31388057.34),
+        ("NTN-F", "VENDA", 2, "2026-11-09", "2033-01-01", 37500.0, 0.153086, 0.153086, 35250.0, 29599195.62),
+        ("NTN-F", "VENDA", 2, "2026-11-09", "2037-01-01", 37500.0, 0.151915, 0.151915, 35250.0, 27634997.79),
+    ]
+
+    def ler(self, nome):
+        return json.loads((self.FIX / nome).read_text(encoding="utf-8"))
+
+    def test_fixture_05_11_reproduz_as_12_linhas_do_sisweb(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript(leiloes.SCHEMA)
+        res = cl.gravar(db, cl.mapear_api(self.ler("leiloes_api_20261105.json")), "api-leiloes-pub")
+        self.assertEqual((len(res["novos"]), res["copias"]), (12, 0))
+        linhas = db.execute("SELECT titulo,tipo,volta,liquidacao,vencimento,oferta,tx_media,tx_corte,venda,financeiro "
+                            "FROM leilao_resultados ORDER BY titulo,tipo,volta,vencimento").fetchall()
+        self.assertEqual(len(linhas), 12)
+        for obtido, esperado in zip(linhas, sorted(self.ESPERADO_05_11, key=lambda x: (x[0], x[1], x[2], x[4]))):
+            self.assertEqual(obtido[:5], esperado[:5])
+            for a, b in zip(obtido[5:], esperado[5:]):
+                self.assertAlmostEqual(a, b, delta=1e-6, msg=obtido)
+        self.assertEqual({r[0] for r in db.execute("SELECT DISTINCT arquivo FROM leilao_resultados")}, {"api-leiloes-pub"})
+        self.assertEqual({r[0] for r in db.execute("SELECT DISTINCT aba FROM leilao_resultados")}, {None})
+        # sem Bacen em 05/11 e zero (nao NULL) nas colunas do Bacen da 2a volta, como o SISWEB
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM leilao_resultados WHERE venda_bacen <> 0").fetchone(), (0,))
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM leilao_resultados WHERE volta=2 AND venda_bacen IS NULL").fetchone(), (0,))
+
+    def test_buscar_api_pede_a_data_no_formato_da_api(self):
+        resposta = mock.Mock()
+        resposta.json.return_value = self.ler("leiloes_api_20261105.json")
+        with mock.patch.object(cl.requests, "get", return_value=resposta) as get:
+            regs = cl.buscar_api("2026-11-05")
+        self.assertEqual(len(regs), 12)
+        self.assertEqual(get.call_args.kwargs["params"], {"dataleilao": "05/11/2026"})
+        resposta.raise_for_status.assert_called_once()
+
+    def test_extraordinario_e_troca(self):
+        self.assertEqual(cl.tipo_da_api("Venda", "Ordinário"), "VENDA")
+        self.assertEqual(cl.tipo_da_api("Compra", "Extraordinário"), "EXTRA_COMPRA")
+        self.assertEqual(cl.tipo_da_api("Venda", "Extraordinário"), "EXTRA_VENDA")
+        self.assertEqual(cl.tipo_da_api("Troca", "Ordinário"), "TROCA")
+        self.assertEqual(cl.tipo_da_api("Troca", "Extraordinário"), "TROCA")
+        self.assertIsNone(cl.tipo_da_api("Outro", "Ordinário"))
+        regs = cl.mapear_api(self.ler("leiloes_api_20260316.json"))
+        self.assertEqual(len(regs), 20)  # 10 Extra Compra + 10 Extra Venda, sem 2a volta
+        self.assertEqual(sum(r["tipo"] == "EXTRA_COMPRA" for r in regs), 10)
+        self.assertEqual(sum(r["tipo"] == "EXTRA_VENDA" for r in regs), 10)
+        self.assertTrue(all(r["volta"] == 1 for r in regs))
+
+    def test_segunda_volta_com_venda_zero(self):
+        regs = cl.mapear_api(self.ler("leiloes_api_20261117.json"))
+        self.assertEqual(len(regs), 8)  # 4 registros, todos com oferta_segunda_volta > 0
+        zero = [r for r in regs if r["titulo"] == "NTN-B" and r["vencimento"] == "2033-05-15" and r["volta"] == 2]
+        self.assertEqual(len(zero), 1)
+        self.assertEqual((zero[0]["oferta"], zero[0]["venda"], zero[0]["financeiro"]), (74997.0, 0.0, 0.0))
+        self.assertEqual((zero[0]["tx_media"], zero[0]["tx_corte"]), (0.077797, 0.077797))
+
+    def test_update_cai_para_api_quando_sisweb_da_erro(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript(leiloes.SCHEMA)
+        cl.gravar(db, cl.mapear_api(self.ler("leiloes_api_20261105.json")), "api-leiloes-pub")
+        with mock.patch.object(cl, "baixar_ano", side_effect=cl.requests.ConnectionError("SISWEB fora")), \
+                mock.patch.object(cl, "buscar_api", return_value=[]) as buscar:
+            self.assertEqual(cl.update(db, 2026), 0)
+        datas = [a.args[0] for a in buscar.call_args_list]
+        self.assertIn(date(2026, 11, 6), datas)   # primeiro dia depois da ultima data do banco
+        self.assertNotIn(date(2026, 11, 7), datas)  # sabado
+        self.assertNotIn(date(2026, 11, 8), datas)  # domingo
+        self.assertIn(date(2026, 11, 9), datas)
+
+    def test_atualizar_por_api_grava_e_sisweb_depois_nao_duplica(self):
+        db = sqlite3.connect(":memory:")
+        db.executescript(leiloes.SCHEMA)
+        cl.gravar(db, cl.mapear_api(self.ler("leiloes_api_20261105.json")), "api-leiloes-pub")
+        regs_17 = cl.mapear_api(self.ler("leiloes_api_20261117.json"))
+        with mock.patch.object(cl, "buscar_api", side_effect=lambda d: regs_17 if d == date(2026, 11, 17) else []):
+            r = cl.atualizar_por_api(db, hoje=date(2026, 11, 17))
+        self.assertEqual((r["dias"], r["linhas"]), (1, 8))
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM leilao_resultados WHERE data='2026-11-17'").fetchone(), (8,))
+        # a planilha do SISWEB chega depois com as mesmas linhas: mesma chave/hash, nada novo
+        novo = cl.gravar(db, regs_17, "historico-leiloes-2026.xlsx")
+        self.assertEqual((len(novo["novos"]), len(novo["revisados"]), novo["iguais"]), (0, 0, 8))
+        self.assertEqual(db.execute("SELECT COUNT(*) FROM leilao_resultados WHERE data='2026-11-17'").fetchone(), (8,))
 
 
 class TestCalendario(unittest.TestCase):

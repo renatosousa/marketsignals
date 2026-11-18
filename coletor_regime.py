@@ -1,9 +1,10 @@
 """Regime do WIN ao vivo -> tabela regime_live (1 linha por minuto), para o dashboard e o Jev.
 
-Na partida (08:55, pelo supervisor) atualiza as barras recentes, as correlacoes/estimador do Tryd e consolida o
-fechamento dos ultimos pregoes em fechamento_diario (consolidar_fechamento.py) e treina o modelo do dia
-(modelo_regime.py). Depois, a cada minuto, le do banco o WIN (snapshots), o dolar e o DI
-(macro_cotacoes) e o VIX (IBKR, aceito com 15 min de atraso por ser medida lenta) e grava:
+Na partida (08:55, pelo supervisor) atualiza as barras recentes, as correlacoes/estimador do Tryd, o Focus
+(ultima sexta), o Tesouro Direto (ultimos 10 dias) e consolida o fechamento dos ultimos pregoes em
+fechamento_diario (consolidar_fechamento.py), e treina o modelo do dia (modelo_regime.py). Depois, a cada minuto,
+le do banco o WIN (snapshots), o dolar e o DI (macro_cotacoes) e o VIX (IBKR, aceito com 15 min de atraso por ser
+medida lenta) e grava:
 
   rv_60 / rv_norm / rv_rel  vol da ultima hora (%), normal do horario e a razao
   er_60, rotulo             eficiencia da ultima hora e rotulo (vol x tendencia/lateral)
@@ -17,7 +18,7 @@ import argparse
 import json
 import sqlite3
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -140,6 +141,35 @@ def estado(db, modelo, agora_ms, hist=None):
                 modelo=modelo["treinado_em"])
 
 
+def atualizar_fontes_externas(db_path):
+    """Focus e Tesouro Direto na partida do regime (cada um no seu try/except, um nao derruba o outro).
+
+    Focus: relatorio mais recente (ultima sexta-feira; a API do BCB so publica nesse dia). Tesouro Direto:
+    completa os ultimos 10 dias do CSV publico (idempotente). Ambos gravam nas suas proprias tabelas
+    (focus_ipca / tesouro_taxas) e nenhum dos dois e necessario para o regime_live: falha so vira aviso."""
+    try:
+        import coletor_focus
+        db = banco.abrir(db_path, coletor_focus.SCHEMA)
+        try:
+            ret = coletor_focus.coletar(db, coletor_focus.ultima_sexta().isoformat())
+        finally:
+            db.close()
+        print(f"Focus IPCA: retorno {ret}", flush=True)
+    except Exception as e:
+        print(f"aviso: Focus nao atualizado ({e.__class__.__name__}: {e})", flush=True)
+    try:
+        import coletor_tesouro
+        hj = date.today()
+        db = banco.abrir(db_path, coletor_tesouro.SCHEMA)
+        try:
+            ret = coletor_tesouro.coletar_intervalo(db, (hj - timedelta(days=10)).isoformat(), hj.isoformat())
+        finally:
+            db.close()
+        print(f"Tesouro Direto: retorno {ret}", flush=True)
+    except Exception as e:
+        print(f"aviso: Tesouro Direto nao atualizado ({e.__class__.__name__}: {e})", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("grupo", nargs="?", default="REGIME")
@@ -175,6 +205,7 @@ def main():
         print(f"estimador do Tryd: {estimador_tryd.atualizar(args.db)} dia(s)", flush=True)
     except Exception as e:
         print(f"aviso: estimador do Tryd nao atualizado ({e.__class__.__name__}: {e})", flush=True)
+    atualizar_fontes_externas(args.db)  # Focus + Tesouro Direto (cada um no seu try/except)
     try:  # fechamento consolidado dos ultimos pregoes (tabela fechamento_diario, usada pelo /api/fechamento)
         import consolidar_fechamento
         print(f"fechamento consolidado: {consolidar_fechamento.consolidar_pendentes(args.db)} pregao(oes)",
