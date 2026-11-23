@@ -4,7 +4,7 @@ Duas janelas do Tryd, por contrato (a janela precisa estar aberta e com a export
   <ativo>_SAL   "Saldo por corretora": acumulado do dia por corretora, completo. Foto a cada --saldo s em tryd_saldo.
                 qtd = qtdc - qtdv e vol = volc - volv (liquidos, contratos e R$); sagr = agrc - agrv (saldo de agressao);
                 spas = qtd - sagr; premed e plb em R$ por contrato. O fluxo de um intervalo sai da diferenca entre fotos.
-  <ativo>_NEGS  "Negocios": a janela guarda os N ultimos (31 ate 3/11/2026, 100 ate 13/11, 200 desde 16/11) e o Tryd a redesenha ~4x/s, entao nos picos (WIN > 120
+  <ativo>_NEGS  "Negocios": a janela guarda os N ultimos (31 ate 3/11/2026, 100 ate 13/11, 200 de 16/11 a 20/11, 250 desde 23/11) e o Tryd a redesenha ~4x/s, entao nos picos (WIN > 120
                 negocios/s) parte da fita se perde: 73% capturado em trecho normal e 45% num pico (30/10/2026). Cada
                 negocio novo entra uma vez em tryd_fita (chave: dia, ativo, num); buracos no `num` (passo de 10 por
                 negocio) medem o que faltou. A fita da corretora de cada ponta, o agressor (Comprador/Vendedor/RLP...) e a
@@ -35,7 +35,7 @@ ATIVOS = ("WINZ26", "WDOZ26")  # saldo + fita (a janela de negocios, se aberta);
 ACOES = ("PETR4", "VALE3", "ITUB4", "BBDC4", "BOVA11")  # so saldo: valida corretora -> tipo de investidor (D+2 da B3, acoes)
 SALDO_CAMPOS = ["BRK", "VOL", "QTD", "PREMED", "AGRC", "AGRV", "SAGR", "SPAS", "PLB", "QTDC", "QTDV", "VOLC", "VOLV"]
 FITA_CAMPOS = ["DAT", "QUL", "PRE", "ACP", "AVD", "AGR", "VAR", "AGAG"]  # + NUM, lido a parte; AGAG desde 16/11/2026
-LINHAS_SALDO, LINHAS_FITA = 500, 200  # a janela de negocios guarda 200 linhas desde 16/11/2026 (31 ate 3/11, 100 ate 13/11)
+LINHAS_SALDO, LINHAS_FITA = 500, 250  # a janela de negocios guarda 250 linhas desde 23/11/2026 (31 ate 3/11, 100 ate 13/11, 200 ate 20/11)
 FALHAS_MAX = 3  # testes seguidos sem o ativo para dar a janela como fechada (ver ativa_estavel)
 LEITURAS_LINHA = 3  # tentativas por linha de saldo vazia/incoerente (ver Tryd.linha_saldo)
 VISTOS_MAX = 50_000  # numeros de negocio lembrados por ativo (o `num` so cresce dentro do dia)
