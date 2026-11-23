@@ -36,6 +36,19 @@ ACOES = ("PETR4", "VALE3", "ITUB4", "BBDC4", "BOVA11")  # so saldo: valida corre
 SALDO_CAMPOS = ["BRK", "VOL", "QTD", "PREMED", "AGRC", "AGRV", "SAGR", "SPAS", "PLB", "QTDC", "QTDV", "VOLC", "VOLV"]
 FITA_CAMPOS = ["DAT", "QUL", "PRE", "ACP", "AVD", "AGR", "VAR", "AGAG"]  # + NUM, lido a parte; AGAG desde 16/11/2026
 LINHAS_SALDO, LINHAS_FITA = 500, 250  # a janela de negocios guarda 250 linhas desde 23/11/2026 (31 ate 3/11, 100 ate 13/11, 200 ate 20/11)
+# Fallback do saldo: a janela nativa "Posicao das Corretoras" do Profit (Todo o Dia) sai pelo DDE `profitchart|RNK`, item
+# `<ativo>.<id da corretora>.7.<campo>` (campos Cor, Prc, QtdCpa, QtdVda, VolCpa, VolVda; 23/11/2026, colado do Excel do
+# dono). Nao tem agressao (AGRC/AGRV/SAGR/SPAS/PLB ficam NULL); o saldo e o mesmo (qtd = qtdc - qtdv). Os ids sao os da
+# tabela exportada (corretoras sem negocio vem zeradas e nao sao gravadas).
+TOPICO_RNK = "RNK"
+ID_REF_RNK = 3  # XP: sondagem de que a janela esta exportando
+IDS_RNK = ([1, 3, 4, 8, 9, 10, 13, 15, 16, 18, 21, 23, 27, 39, 40, 45, 58, 59, 63, 72, 74, 77, 83, 85, 88, 90, 92, 93,
+            106, 107, 114, 115, 120, 122, 127, 129, 131, 147, 164, 172, 174, 177, 186, 187, 188, 190, 191, 206, 226,
+            227, 234, 238, 251, 254, 262, 298, 304, 308, 338, 339, 340, 341, 342, 344, 345, 346, 347, 348, 349, 350,
+            351, 353, 356, 357, 358, 359, 360, 361, 363, 364, 365, 367, 368, 369, 370, 371, 372, 373, 374, 379, 380,
+            381, 386] + list(range(500, 530)) +
+           [622, 688, 735, 746, 833, 900, 995, 1026, 1081, 1089, 1099, 1130, 1618, 1850, 1855, 1953, 1982, 2010, 2028,
+            2659, 3130, 3701, 4002, 4015, 4090, 5264, 6003, 7029, 7035, 7078, 7968, 8000, 11983, 11984, 811330, 811675])
 FALHAS_MAX = 3  # testes seguidos sem o ativo para dar a janela como fechada (ver ativa_estavel)
 LEITURAS_LINHA = 3  # tentativas por linha de saldo vazia/incoerente (ver Tryd.linha_saldo)
 VISTOS_MAX = 50_000  # numeros de negocio lembrados por ativo (o `num` so cresce dentro do dia)
@@ -66,6 +79,7 @@ class Tryd:
     def __init__(self, abrir=Dde):
         self._abrir, self.dde, self.vistos, self.velhos = abrir, None, {}, {}
         self.estado, self.falhas = {}, {}
+        self.rnk = None
 
     def conectar(self):
         if self.dde is None:
@@ -154,7 +168,43 @@ class Tryd:
             vistos.intersection_update({x for x in vistos if x >= corte})
         return sorted(novos, key=lambda r: r[2])
 
+    def _conectar_rnk(self):
+        if self.rnk is None:
+            self.rnk = self._abrir(topico=TOPICO_RNK)  # OSError se o Profit estiver fechado
+        return self.rnk
+
+    def ativa_rnk(self, ativo):
+        """True se a janela "Posicao das Corretoras" do ativo esta exportando (o item da XP devolve '003-XP')."""
+        try:
+            v = valor(self._conectar_rnk().ler(f"{ativo}.{ID_REF_RNK}.7.Cor"))
+        except OSError:
+            return False
+        return isinstance(v, str) and "-" in v
+
+    def saldo_rnk(self, ts, ativo):
+        """Mesmo formato de `saldo` a partir do RNK: so as corretoras com negocio, da maior para a menor em volume.
+        qtd e vol saem de compra - venda (coerentes por construcao); a agressao fica NULL."""
+        rnk, linhas = self._conectar_rnk(), []
+        for i in IDS_RNK:
+            nome = valor(rnk.ler(f"{ativo}.{i}.7.Cor"))
+            if vazio(nome) or not isinstance(nome, str):
+                continue
+            prc, qc, qv, vc, vv = (valor(rnk.ler(f"{ativo}.{i}.7.{c}")) for c in ("Prc", "QtdCpa", "QtdVda", "VolCpa", "VolVda"))
+            if not all(isinstance(x, (int, float)) for x in (qc, qv, vc, vv)) or (qc == 0 and qv == 0):
+                continue
+            brk = nome.split("-", 1)[1].strip() if "-" in nome else nome
+            linhas.append((brk, vc - vv, qc - qv, prc if isinstance(prc, (int, float)) else None, qc, qv, vc, vv))
+        linhas.sort(key=lambda r: -(r[6] + r[7]))
+        return [(ts, ativo, n, r[0], r[1], r[2], r[3], None, None, None, None, None, r[4], r[5], r[6], r[7])
+                for n, r in enumerate(linhas)]
+
     def fechar(self):
+        if self.rnk is not None:
+            try:
+                self.rnk.fechar()
+            except OSError:
+                pass
+            self.rnk = None
         if self.dde is not None:
             try:
                 self.dde.fechar()
@@ -226,13 +276,21 @@ def main():
                 ativas[(a, ferr)] = tryd.ativa_estavel(a, ferr)
                 log(f"{a}_{ferr}", "ativa" if ativas[(a, ferr)] else "inativa: abra a janela no Tryd com a "
                                                                      "exportacao DDE ligada")
+            ler_saldo = None
             if ativas[(a, "SAL")]:
+                ler_saldo = tryd.saldo
+            elif tryd.ativa_rnk(a):
+                ler_saldo = tryd.saldo_rnk
+                log(f"{a}_RNK", "ativa: saldo pela janela Posicao das Corretoras (sem agressao)")
+            else:
+                log(f"{a}_RNK", "inativa")
+            if ler_saldo:
                 if ts % 86_400_000 < abertura_h * 3_600_000:
                     # antes da abertura nao ha negocio e a janela mostra a tabela do pregao anterior; ela nem sempre e
                     # igual a ultima foto gravada (9/11/2026: PETR4 de sexta com 9 de 36 corretoras diferentes)
                     log(f"{a}_ontem", "antes da abertura: a tabela de saldo e a do pregao anterior; nao grava")
                     continue
-                ls = tryd.saldo(ts, a)
+                ls = ler_saldo(ts, a)
                 if ls and repete_ontem(ts, a, ls):
                     log(f"{a}_ontem", "tabela de saldo ainda e a de ontem: nao grava ate a abertura")
                     continue

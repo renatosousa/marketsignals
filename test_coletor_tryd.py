@@ -235,5 +235,58 @@ class TestBanco(unittest.TestCase):
         self.assertEqual(dde_tryd.valor("33996,85"), 33996.85)
 
 
+def rnk(corretoras, ativo="WINZ26"):
+    """Janela Posicao das Corretoras: {id: (nome, prc, qtd_cpa, qtd_vda, vol_cpa, vol_vda)}; ids fora de IDS_RNK nao existem."""
+    d = {}
+    for i, (nome, prc, qc, qv, vc, vv) in corretoras.items():
+        for c, v in (("Cor", nome), ("Prc", prc), ("QtdCpa", qc), ("QtdVda", qv), ("VolCpa", vc), ("VolVda", vv)):
+            d[f"{ativo}.{i}.7.{c}"] = str(v).replace(".", ",")
+    return d
+
+
+class TestSaldoRnk(unittest.TestCase):
+    """Fallback pelo servico profitchart|RNK (23/11/2026): saldo sem agressao quando a janela _SAL nao exporta."""
+
+    def tryd(self, itens):
+        t = ct.Tryd(lambda topico="TT": DdeFalso(itens))
+        t.conectar()
+        return t
+
+    def test_inativa_sem_janela(self):
+        self.assertFalse(self.tryd({}).ativa_rnk("WINZ26"))
+
+    def test_ativa_quando_a_xp_responde(self):
+        t = self.tryd(rnk({3: ("003-XP", 166293.5, 530044, 531371, 17627934126, 17672658250)}))
+        self.assertTrue(t.ativa_rnk("WINZ26"))
+        self.assertFalse(t.ativa_rnk("WDOZ26"))
+
+    def test_saldo_rnk_formato_e_valores(self):
+        t = self.tryd(rnk({3: ("003-XP", 166293.5, 530044, 531371, 17627934126, 17672658250),
+                           8: ("008-UBS", 166289.5, 90371, 84664, 3005556445, 2815249906),
+                           9: ("009-Deuts", 0, 0, 0, 0, 0)}))
+        ls = t.saldo_rnk(TS, "WINZ26")
+        self.assertEqual(len(ls), 2)  # a corretora zerada nao entra
+        xp = next(r for r in ls if r[3] == "XP")
+        self.assertEqual(len(xp), 16)  # mesma forma de tryd_saldo
+        self.assertEqual((xp[5], xp[4]), (530044 - 531371, 17627934126 - 17672658250))  # qtd e vol liquidos
+        self.assertEqual((xp[12], xp[13], xp[14], xp[15]), (530044, 531371, 17627934126, 17672658250))
+        self.assertEqual(xp[7:12], (None,) * 5)  # sem agressao
+        self.assertEqual([r[2] for r in ls], [0, 1])  # linha = posicao por volume
+        self.assertEqual(ls[0][3], "XP")  # maior volume primeiro
+
+    def test_celula_nao_numerica_pula_a_corretora(self):
+        itens = rnk({3: ("003-XP", 1, 10, 4, 100, 40)})
+        itens["WINZ26.3.7.QtdVda"] = "#N/D"
+        self.assertEqual(self.tryd(itens).saldo_rnk(TS, "WINZ26"), [])
+
+    def test_fechar_fecha_as_duas_conexoes(self):
+        t = self.tryd(rnk({3: ("003-XP", 1, 1, 0, 1, 0)}))
+        t.ativa_rnk("WINZ26")
+        dde, r = t.dde, t.rnk
+        t.fechar()
+        self.assertFalse(dde.aberto)
+        self.assertFalse(r.aberto)
+
+
 if __name__ == "__main__":
     unittest.main()
